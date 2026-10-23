@@ -43,7 +43,8 @@ settings drive the test part only.
 | `SupportGapRatio` | App::PropertyFloat | 0.25 | Gap as a fraction of `LineWidth` (from the video: "0.25 the layer width") |
 | `SupportGap` | App::PropertyLength | `=LineWidth * SupportGapRatio` → 0.105 mm | Derived: air gap between part and wedge |
 | `SupportWallThick` | App::PropertyLength | `=2 * LineWidth` → 0.84 mm | Wedge plate thickness. Kept thin on purpose (video: supports "don't need to be real thick") |
-| `SupportSpacing` | App::PropertyLength | 5 mm | Center-to-center spacing of wedge plates under an overhang |
+| `SupportTabLen` | App::PropertyLength | 0.5 mm | Length of each light-touch contact tab along the wedge's contact edge (0.707 mm was measured in the video at 45°, so 0.5 mm is assumed. Confirm) |
+| `SupportTabPitch` | App::PropertyLength | 10 mm | Spacing between contact tabs (estimated from the screenshot. Confirm) |
 | `MinOverhangArea` | App::PropertyArea | 4 mm² | Ignore overhang faces smaller than this (slicer bridges them) |
 
 **Interpretation to confirm:** I read "layer width" as the extrusion **line width**, not the
@@ -79,7 +80,7 @@ The default SupportXYGap and fixture values are first guesses, to be tuned after
    3. `Pad` length `=FixtureDepth`, so the part is centered at (0,0,0) in XY per CAD_STANDARDS
 2. `Supports` (Part::FeaturePython, created by `SupportGenerator.FCMacro`)
    - `Source` → `Fixture`
-   - `OverhangAngle`, `Gap`, `WallThick`, `Spacing`, `MinArea` → expressions `<<Params>>#VarSet.*`
+   - `OverhangAngle`, `Gap`, `WallThick`, `TabLen`, `TabPitch`, `MinArea` → expressions `<<Params>>#VarSet.*`
 
 ### Support algorithm (`SupportFeature.execute`)
 
@@ -87,15 +88,18 @@ The default SupportXYGap and fixture values are first guesses, to be tuned after
 2. Overhang faces: every face whose outward normal has `z < −sin(OverhangAngle)`, whose
    `ZMin > bed_z + SupportGap` (not on the bed), and whose `Area ≥ MinArea`.
    **v1 handles planar faces only**; curved faces are skipped with a console warning.
-3. For each face: lay out thin **wedge plates** (`SupportWallThick` thick) across the face's
-   footprint at `SupportSpacing`. Each plate is a vertical fin whose top edge follows the overhang
-   and whose base sits on `bed_z`. "Wedge" means the fin tapers toward the part, so the contact
-   is a narrow edge and the base is wide and stable. **The exact wedge profile needs confirming
-   from the video** (see Open questions).
-4. Gap: lower each fin's top by `SupportGap`, and cut the fused fins with
-   `part.makeOffsetShape(SupportGap)`. That holds a uniform `SupportGap` from the part on every
-   side. Because there's a single gap concept, the earlier XY-vs-Z cut conflict goes away.
-5. `obj.Shape = result` (an empty compound when nothing needs support).
+3. For each overhang face: build one **triangular wedge (gusset) plate**, `SupportWallThick`
+   thick. The plate stands on `bed_z`, and its sloped long edge runs parallel to the overhang's
+   underside. This matches the blue wedge in the video screenshot (5:52, "Modeling Light-Touch
+   Support in Fusion").
+4. Gap: offset the wedge's contact edge down/away by `SupportGap`, then cut the wedge with
+   `part.makeOffsetShape(SupportGap)`, which holds a uniform gap everywhere.
+5. **Light-touch tabs:** add small tabs at `SupportTabPitch` along the contact strip, each
+   `SupportTabLen` long. They bridge the gap up to the part, and they're the only points where the
+   support and the part touch (screenshots: evenly spaced nubs along the wedge's top strip, one
+   edge measured at 0.707 mm). *Whether the tabs touch at zero gap or keep a reduced gap is
+   unconfirmed.*
+6. `obj.Shape = result` (an empty compound when nothing needs support).
 
 ### Export
 
@@ -126,8 +130,8 @@ CircleInlayRouterJig export macro already writes Creality project 3MFs) or to ST
 
 1. `python3 scripts/audit_parametric.py`: clean.
 2. **Gap check by distance, not volume** (per the print-in-place lesson):
-   `part.distToShape(supports)[0] ≥ SupportGap − 0.005`. A touching support has 0
-   interference volume but still fuses.
+   `part.distToShape(supports_without_tabs)[0] ≥ SupportGap − 0.005`. A touching support has 0
+   interference volume but still fuses. Tabs are checked separately against their intended contact.
 3. Per overhang face: measured vertical gap at the face centroid = `SupportGap` ± 0.005.
 4. `Supports.Shape.isValid()`, all solids closed; `Supports` ZMin == part ZMin (sits on bed).
 5. **Flex test:** change `OverhangAngle`, `SupportGapRatio`, `SupportWallThick`, and
@@ -156,8 +160,13 @@ CircleInlayRouterJig export macro already writes Creality project 3MFs) or to ST
 Answered 2026-10-23: supports are thin, the gap is 0.25 × layer width, supports are a separate object,
 and 3MF export replaces STEP + split.
 
+Answered from the screenshots: the wedge is a **triangular gusset plate**, it's a separate component,
+and contact is through **small spaced tabs** along a narrow strip.
+
 1. **"Layer width":** line width (0.105 mm gap) or layer height (0.05 mm)?
-2. **Wedge shape:** is a wedge a vertical fin that tapers to a knife edge at the part (what this plan
-   assumes)? Or a triangular gusset between a wall and the overhang (a 45° brace off the part's own side)?
-3. Any slicer-side settings from the video (wall count on the supports, a seam/contact setting) that
-   belong in the print profile?
+2. **Tabs:** do they touch the part (zero gap, so the tabs are what breaks), or do they keep the
+   0.25× gap too? And what does the 0.707 mm measurement in the video belong to: tab length, width, or height?
+3. **Part-side flats:** does he add flats or landing pads to the part itself (`Support Flats 1/2` sketches
+   in Body1)? If so, the generator only builds the support, and part-side features stay
+   the user's job in v1.
+4. How thick is the wedge plate (currently `2 × LineWidth` = 0.84 mm)?

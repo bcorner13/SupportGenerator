@@ -17,7 +17,7 @@ with a flex test (change the Param, recompute, re-measure).
 
 1. **Everything parametric.** This covers the test-fixture sketch (bind every dimension to the
    `Fixture*` Params) and the `Supports` FeaturePython properties (`OverhangAngle`, `Gap`,
-   `WallThick`, `Spacing`, `MinArea` → `<<Params>>#VarSet.*`). Literals in `support_generator.py`
+   `WallThick`, `TabLen`, `TabPitch`, `MinArea` → `<<Params>>#VarSet.*`). Literals in `support_generator.py`
    are limited to numeric tolerances, commented inline. No prior incident; this is a fresh project.
 
 2. **No fixing geometry by editing raw sketch coordinates.** No prior incident in this project; rule
@@ -42,7 +42,7 @@ There are two objects, and they are never fused:
 
 - **Part**: any PartDesign Body (in this project, the `Fixture` Body: a Γ-shaped cantilever whose ledge
   underside is the overhang under test). It sits on the bed at its own ZMin.
-- **Supports** (`Part::FeaturePython`): its `Source` links to the Part. It holds thin wedge plates
+- **Supports** (`Part::FeaturePython`): its `Source` links to the Part. It holds thin triangular wedge (gusset) plates with small light-touch contact tabs,
   standing on the same bed plane, their tops one `SupportGap` below each overhang face, and
   `SupportGap` clear of every part surface. It's a **separate object** so the slicer treats it as
   independent geometry (the video's "split to objects" step happens at export instead).
@@ -65,7 +65,7 @@ No broken files.
 
 See `plan.md` → PARAMETERS. Groups:
 - **Support:** `OverhangAngle`, `LineWidth`, `SupportGapRatio`, `SupportGap` (derived),
-  `SupportWallThick` (derived, 2 × LineWidth), `SupportSpacing`, `MinOverhangArea`.
+  `SupportWallThick` (derived, 2 × LineWidth), `SupportTabLen`, `SupportTabPitch`, `MinOverhangArea`.
 - **Fixture:** `FixtureColumnW`, `FixtureDepth`, `FixtureHeight`, `FixtureLedgeLen`, `FixtureLedgeThick`.
 
 Run `python3 scripts/audit_parametric.py` to check bindings.
