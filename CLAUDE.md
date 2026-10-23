@@ -3,7 +3,7 @@
 This project is a **tool**, not a single part. It's a FreeCAD **workbench** (`workbench/SupportGenerator/`,
 symlinked into `Mod/`) whose FeaturePython `Supports` object
 has to follow any Body it's pointed at. The main parametric risk is the generated `Supports`
-object going **stale or literal**: a one-shot `Part::Feature`, a gap typed as `0.105` instead of
+object going **stale or literal**: a one-shot `Part::Feature`, a gap typed as `0.05` instead of
 bound to `<<Params>>#VarSet.SupportGap`, or a proxy module that fails to load on reopen and leaves a
 dead shape behind. Every generator input must be expression-bound, and every change must be proven
 with a flex test (change the Param, recompute, re-measure).
@@ -18,10 +18,10 @@ with a flex test (change the Param, recompute, re-measure).
 
 1. **Everything parametric.** This covers the test-fixture sketch (bind every dimension to the
    `Fixture*` Params) and the `Supports` FeaturePython properties (`OverhangAngle`, `Gap`,
-   `WallThick`, `MaxSlenderness`, `BaseRatio`, `WedgePitch`, `TabLen`, `TabPitch`, `MinArea` →
+   `WallThick`, `MaxSlenderness`, `BaseRatio`, `WedgePitch`, `DiskDia`, `DiskPitch`, `MinArea` →
    `<<Params>>#VarSet.*`). Workbench code may contain only the tool defaults in `params_schema.py`
    and numeric tolerances, both commented inline. Wedge *sizing* (thickness, footprint, wedge and
-   tab counts) is computed in `wedge_math.py` from those Params, never hard-coded. No prior incident; this is a fresh project.
+   disk counts) is computed in `wedge_math.py` from those Params, never hard-coded. No prior incident; this is a fresh project.
 
 2. **No fixing geometry by editing raw sketch coordinates.** No prior incident in this project; rule
    applies preventively. A wrong support shape is fixed in the algorithm or a Param, never by
@@ -31,7 +31,7 @@ with a flex test (change the Param, recompute, re-measure).
    preventively. The fixture's `ProfileSketch` attaches to `XZ_Datum`.
 
 4. **Clearance concepts stay decoupled.** Clearance Params in use:
-   - `SupportGap` (= `LineWidth × SupportGapRatio`): air gap between the part and the support
+   - `SupportGap` (= `LayerHeight × SupportGapRatio`, 0.05 mm): air gap between the part and the support
      wedges, on every side. This is one interface (the support contact), so one Param. If a test
      print shows the top and side gaps need different values, split it into `SupportZGap` /
      `SupportXYGap`. Don't overload it.
@@ -45,7 +45,7 @@ There are two objects, and they are never fused:
 
 - **Part**: any PartDesign Body (in this project, the `Fixture` Body: a Γ-shaped cantilever whose ledge
   underside is the overhang under test). It sits on the bed at its own ZMin.
-- **Supports** (`Part::FeaturePython`): its `Source` links to the Part. It holds thin triangular wedge (gusset) plates with small light-touch contact tabs,
+- **Supports** (`Part::FeaturePython`): its `Source` links to the Part. It holds thin triangular wedge (gusset) plates carrying small contact **disks** that touch the part (zero gap, zero overlap) while staying in this separate object,
   standing on the same bed plane, their tops one `SupportGap` below each overhang face, and
   `SupportGap` clear of every part surface. It's a **separate object** so the slicer treats it as
   independent geometry (the video's "split to objects" step happens at export instead).
@@ -68,7 +68,7 @@ No broken files.
 
 See `plan.md` → PARAMETERS. Groups:
 - **Support:** `OverhangAngle`, `LineWidth`, `SupportGapRatio`, `SupportGap` (derived),
-  `SupportWallThick` (derived, 2 × LineWidth), `SupportTabLen`, `SupportTabPitch`, `MinOverhangArea`.
+  `SupportWallThick` (derived, 2 × LineWidth), `SupportDiskDia`, `SupportDiskPitch`, `MinOverhangArea`; plus `LayerHeight`.
 - **Fixture:** `FixtureColumnW`, `FixtureDepth`, `FixtureHeight`, `FixtureLedgeLen`, `FixtureLedgeThick`.
 
 Run `python3 scripts/audit_parametric.py` to check bindings.
@@ -118,6 +118,7 @@ No project-scoped memories yet — this is a fresh project. Relevant global ones
 - **Write changes as `macros/*.FCMacro` files**, not direct XML edits. Reasons: reviewable, re-runnable, idempotent-friendly, uses FreeCAD's own serialization.
 - **Cross-document expressions**: use the canonical form `<<Params>>#VarSet.VarName`. The shorter `<<Params>>.VarName` form sometimes fails with "Params not found."
 - **Run `python3 scripts/audit_parametric.py` before committing.** If it reports violations, fix via macro, not by editing FCStd XML.
+- **Stop means stop; only Bradley's laptop counts.** If the laptop's FreeCAD or MCP bridge is unreachable, the plan isn't approved, or required files are missing, the task is **blocked**: report it with the evidence and end the turn. Do not install, download, or run any other FreeCAD, MCP server, VM, sandbox, or headless instance, or take any other route to the result not described here, including routes this file doesn't mention. Every validation run (FreeCAD checks, sweeps, audit) calls `require_laptop()` from `scripts/test_env_guard.py` first and quotes its banner. A result without a `TEST ENVIRONMENT VERIFIED` banner is **invalid**, not partial evidence, and must never be reported as passing. Never edit, stub, or bypass the guard, and never run `--enroll`; only Bradley enrolls the machine.
 
 **Project-specific:**
 

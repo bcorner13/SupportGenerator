@@ -182,6 +182,15 @@ def audit_feature_dimensions(xml):
 
 
 def main():
+    # Results only count from Bradley's laptop; see test_env_guard.py.
+    sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+    from test_env_guard import InvalidTestEnvironment, require_laptop
+    try:
+        print(require_laptop(need_freecad=False))
+    except InvalidTestEnvironment as e:
+        print(e)
+        return 2
+
     fcstd_files = []
     for root, dirs, files in os.walk(PROJECT_ROOT):
         # skip venv/git/etc

@@ -1,4 +1,4 @@
-# Plan — SupportGenerator (rev 2, AWAITING APPROVAL)
+# Plan — SupportGenerator (rev 3, AWAITING APPROVAL)
 
 > Execution is FORBIDDEN until Bradley approves this plan (PROJECT_BOOTSTRAP Step 3).
 >
@@ -9,6 +9,9 @@
 > **Rev 2 (2026-10-23):** delivered as a **FreeCAD workbench** instead of a macro (Bradley:
 > "can be a workbench as well"). Adds a **wedge-sizing computation** section, because the wedge
 > must be sized relative to the part.
+>
+> **Rev 3 (2026-10-23):** gap = 0.25 × **layer height**. Contacts are **disks on the support** that
+> touch the part (zero gap, zero overlap) while staying in the separate support object.
 
 ---
 
@@ -63,19 +66,22 @@ build the test bench.
 | Name | Type | Default | Meaning |
 |---|---|---|---|
 | `OverhangAngle` | App::PropertyAngle | 45° | A face needs support when it leans past this angle from vertical (normal.z < −sin(angle)) |
-| `LineWidth` | App::PropertyLength | 0.42 mm | Slicer extrusion line width (0.4 nozzle). The gap is scaled from this |
-| `SupportGapRatio` | App::PropertyFloat | 0.25 | Gap as a fraction of `LineWidth` (video: "0.25 the layer width") |
-| `SupportGap` | App::PropertyLength | `=LineWidth * SupportGapRatio` → 0.105 mm | Derived: air gap between part and wedge |
+| `LayerHeight` | App::PropertyLength | 0.20 mm | Slicer layer height. The gap is scaled from this |
+| `LineWidth` | App::PropertyLength | 0.42 mm | Slicer extrusion line width (0.4 nozzle). Sets the minimum wedge thickness |
+| `SupportGapRatio` | App::PropertyFloat | 0.25 | Gap as a fraction of `LayerHeight` (video: "0.25 the layer width" = layer height, confirmed 2026-10-23) |
+| `SupportGap` | App::PropertyLength | `=LayerHeight * SupportGapRatio` → 0.05 mm | Derived: air gap between the part and the wedge body (disks bridge it) |
 | `SupportWallThick` | App::PropertyLength | `=2 * LineWidth` → 0.84 mm | *Minimum* wedge plate thickness (video: supports "don't need to be real thick") |
 | `SupportMaxSlenderness` | App::PropertyFloat | 30 | Max wedge height ÷ thickness. Taller wedges thicken automatically *(proposal)* |
 | `SupportBaseRatio` | App::PropertyFloat | 0.5 | Min footprint length on the bed ÷ wedge height, for tip-over stability *(proposal)* |
 | `SupportWedgePitch` | App::PropertyLength | 15 mm | Max spacing between wedges across a wide overhang *(proposal)* |
-| `SupportTabLen` | App::PropertyLength | 0.5 mm | Contact-tab length along the wedge edge (0.707 mm measured at 45° in the video, so 0.5 assumed) |
-| `SupportTabPitch` | App::PropertyLength | 10 mm | Spacing between contact tabs (estimated from screenshot) |
+| `SupportDiskDia` | App::PropertyLength | `=2 * LineWidth` → 0.84 mm | Contact-disk diameter. Disks are on the **support**, never the part *(default is a proposal)* |
+| `SupportDiskPitch` | App::PropertyLength | 10 mm | Spacing between contact disks along each wedge (estimated from screenshot) |
 | `MinOverhangArea` | App::PropertyArea | 4 mm² | Ignore overhang faces smaller than this (slicer bridges them) |
 
-**Interpretation to confirm:** "layer width" is read as the extrusion **line width** (gap 0.105 mm).
-If it means layer height (0.2 mm), the gap is 0.05 mm. That's a one-Param swap.
+**Contact model (Bradley, 2026-10-23):** the wedge body sits `SupportGap` (0.05 mm) clear of the
+part everywhere. Small **disks on the support** bridge that gap and **touch** the part, which means zero
+distance and zero overlap. The disks belong to the `Supports` object, a separate object from the part,
+so the slicer slices them independently and never merges the two. The disks are the only contact.
 
 **Gap concept:** one part-to-support gap, because it's one physical interface (the support contact).
 If the test print shows the top and side gaps need different values, split it into
@@ -121,18 +127,23 @@ For each qualifying overhang face **F** (planar in v1):
    `B_min`. The outer edge becomes a sloped hypotenuse, so the profile stays a wedge. For a level face,
    the profile becomes a triangle with full contact along the top and a diagonal back edge.
    *Which side of the face the hypotenuse goes on needs checking against the video.*
-8. **Tabs.** Contact length `Lc = |P_hi − P_lo|`. `n_tabs = max(2, floor(Lc / SupportTabPitch) + 1)`,
-   evenly spaced and inset `SupportTabLen` from both ends. Each tab is `SupportTabLen` × `t` and
-   bridges the gap up to the part. Whether the tabs fully touch or leave a smaller gap is open question 2.
+8. **Contact disks.** Contact length `Lc = |P_hi − P_lo|`.
+   `n_disks = max(2, floor(Lc / SupportDiskPitch) + 1)`, evenly spaced and inset `SupportDiskDia`
+   from both ends. Each disk is a cylinder of diameter `SupportDiskDia`. Its axis is the overhang
+   face's normal `n`. Its base sits on the wedge's contact edge, and its height exactly spans the gap,
+   so its top face is **coplanar with the overhang face**: touching, not overlapping. The disks are
+   fused into the support solid and never into the part. When `SupportDiskDia > t`, the disk
+   overhangs the plate edge slightly, which is fine as a mushroom-cap contact.
 9. **Clearance clip.** Extrude the profile ±t/2 along `w`, fuse all wedges, then cut with
-   `part.makeOffsetShape(SupportGap)` (the tabs are added *after* this cut). If the cut removes a
-   wedge's bed contact (part material below), skip that wedge with a warning. Support-on-part is Phase 5.
+   `part.makeOffsetShape(SupportGap)`. The disks are added *after* this cut, so the cut doesn't
+   trim them. If the cut removes a wedge's bed contact (part material below), skip that wedge with a
+   warning. Support-on-part is Phase 6.
 10. **Edge cases.** For `h_max < 2 × LineWidth`, skip it (too short to print a wedge; the slicer
     bridges it). If F needs a wedge plane that hits the part before reaching the bed, step 9 catches it.
 
 `tests/test_wedge_math.py` covers, before any FreeCAD work: a level ledge, a 45° slope, a
-very tall slope (thickness grows), a short wedge (gets skipped), a wide face (multiple wedges), and the tab
-count at the boundaries.
+very tall slope (thickness grows), a short wedge (gets skipped), a wide face (multiple wedges), the disk
+count at the boundaries, and the disk height == gap.
 
 ---
 
@@ -172,9 +183,14 @@ CircleInlayRouterJig custom 3MF writer.
 
 ## VALIDATION
 
-1. `python3 workbench/SupportGenerator/tests/test_wedge_math.py`: all pass.
+0. **Every run starts with `require_laptop()`** from `scripts/test_env_guard.py`, with its
+   `TEST ENVIRONMENT VERIFIED` banner quoted (PROJECT_BOOTSTRAP Step 8). Inside FreeCAD, run
+   `importlib.reload(test_env_guard)` first. A result without the banner is invalid.
+1. `python3 workbench/SupportGenerator/tests/test_wedge_math.py`: all pass (calls `require_laptop(need_freecad=False)`).
 2. `python3 scripts/audit_parametric.py`: clean.
-3. **Gap by distance, not volume:** `part.distToShape(wedges_without_tabs)[0] ≥ SupportGap − 0.005`.
+3. **Gap by distance, not volume:** `part.distToShape(wedges_without_disks)[0] ≥ SupportGap − 0.005`.
+   **Disks:** each disk's `distToShape(part) ≤ 0.001` (touching), and
+   `disk.common(part).Volume ≤ 1e-6` (not overlapping).
 4. Per wedge: the vertical gap at the contact midpoint = `SupportGap` ± 0.005, `t` matches step 5,
    and the footprint is ≥ `B_min`.
 5. `Supports.Shape.isValid()`, closed solids, and `Supports` ZMin == part ZMin.
@@ -202,11 +218,14 @@ CircleInlayRouterJig custom 3MF writer.
 ## Open questions (answer before approval)
 
 Answered 2026-10-23: supports are thin; the gap is 0.25 × layer width; supports are a separate object;
-3MF replaces STEP + split; the wedge is a triangular gusset with small spaced contact tabs; delivered as a workbench.
+3MF replaces STEP + split; the wedge is a triangular gusset with small spaced contact points; delivered as a workbench.
 
-1. **"Layer width":** line width (0.105 mm gap) or layer height (0.05 mm)?
-2. **Tabs:** do they touch the part (zero gap), or keep a reduced gap? What did the 0.707 mm measure?
-3. **Part-side flats** (`Support Flats 1/2` in his Body1): does he add landing pads to the part? v1
-   assumes no, so the generator never modifies your part.
-4. **Wedge sizing in the video:** does he size the wedge by any rule (base vs height, thickness)? If not,
-   the *(proposal)* defaults above (base ≥ 0.5 × height, slenderness ≤ 30, pitch 15 mm) stand until the test print.
+Answered 2026-10-23 (round 3): the gap is **0.25 × layer height** (0.05 mm). Contact points **touch** the
+part but belong to the separate support object, so the slicer never merges them. Contacts are **small
+disks on the support**, and the part is never modified.
+
+Remaining (non-blocking; defaults stand until the test print):
+
+1. **Disk diameter:** the default is 2 × line width (0.84 mm). Did the video use a specific size?
+2. **Wedge sizing rules:** base ≥ 0.5 × height, slenderness ≤ 30, wedge pitch 15 mm, disk pitch 10 mm
+   are all *(proposal)* values.
