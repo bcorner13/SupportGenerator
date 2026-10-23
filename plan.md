@@ -1,62 +1,87 @@
-# Plan — SupportGenerator (rev 1, AWAITING APPROVAL)
+# Plan — SupportGenerator (rev 2, AWAITING APPROVAL)
 
 > Execution is FORBIDDEN until Bradley approves this plan (PROJECT_BOOTSTRAP Step 3).
 >
-> **Source:** Claude could not watch the video (YouTube serves no transcript to a fetch). The
-> technique details below come from **Bradley's summary** (2026-10-23): thin supports, wedge
-> gap = 0.25 × layer width, supports as a separate object, split into objects in the slicer.
-> Everything else is Claude's design and is marked as such.
+> **Source:** Claude could not watch the video (YouTube serves no transcript to a fetch). Technique
+> details come from **Bradley's summary** and **three video screenshots** (2026-10-23).
+> Anything else is Claude's design, marked *(proposal)*.
+>
+> **Rev 2 (2026-10-23):** delivered as a **FreeCAD workbench** instead of a macro (Bradley:
+> "can be a workbench as well"). Adds a **wedge-sizing computation** section, because the wedge
+> must be sized relative to the part.
 
 ---
 
 ## Architecture
 
-| Piece | Where | Role |
-|---|---|---|
-| `support_generator.py` | `macros/` → symlinked into FreeCAD Macro dir as `SG-support_generator.py` | Library module: `SupportFeature` FeaturePython proxy + geometry algorithm |
-| `SupportGenerator.FCMacro` | `macros/` → `SG-SupportGenerator.FCMacro` | User command: take the selected Body, create a `Supports` object, bind its properties to Params |
-| `00-bootstrap_params.FCMacro` | `macros/` → `SG-00-bootstrap_params.FCMacro` | Creates `Params.FCStd` + VarSet (idempotent) |
-| `01-build_fixture.FCMacro` | `macros/` → `SG-01-build_fixture.FCMacro` | Builds the parametric test-fixture Body in `SupportGenerator.FCStd` |
+The tool is an addon workbench. It's developed in this repo under `workbench/SupportGenerator/` and
+symlinked to `~/Library/Application Support/FreeCAD/v1-1/Mod/SupportGenerator`.
 
-**Why a FeaturePython object instead of a one-shot macro:** a one-shot macro produces a dead
-`Part::Feature` that goes stale the moment the Body or a Param changes. That violates the intent.md
-rule that supports update on recompute. A `Part::FeaturePython` with a `Source` link and
-expression-bound gap properties recomputes like any other feature.
+| File | Role |
+|---|---|
+| `InitGui.py` | **Stub loader** only: execs `_workbench.py` in an explicit namespace. FreeCAD's `RunInitGuiPy` loses module globals otherwise (known issue from the FreeCADMCPAgent addon) |
+| `_workbench.py` | `SupportGeneratorWorkbench` + command registration, toolbar and menu |
+| `support_feature.py` | `SupportFeature` (Part::FeaturePython proxy) + `ViewProviderSupport`. Builds the geometry in `execute()` |
+| `wedge_math.py` | **Pure-Python sizing math, no FreeCAD imports** (see *Wedge sizing*). Unit-tested with plain `python3` |
+| `params_schema.py` | The one table of Support* Param names, types, groups and tool defaults |
+| `tests/test_wedge_math.py` | Unit tests for the sizing math (run outside FreeCAD) |
+| `Resources/icons/*.svg` | Command icons |
 
-**Known risk (verify in Phase 0):** a FeaturePython proxy's module must be importable when the
-document is reopened. The plan assumes FreeCAD's user Macro dir is on `sys.path`, which is unverified.
-If it isn't, the module goes in a minimal `Mod/SupportGenerator/` addon folder instead.
+**Commands**
+
+1. **Ensure Support Params**: adds any missing `Support*` variables to the active project's
+   `Params` VarSet, using `params_schema.py` defaults. Variables that already exist are left
+   alone (idempotent). This follows the global rule "if the needed variable doesn't exist, add it
+   to the project's VarSet first".
+2. **Add Supports**: for the selected Body, creates a `Supports` FeaturePython object (`Source` →
+   Body) and binds every input property to `<<Params>>#VarSet.Support*`. It runs command 1 first
+   if anything is missing.
+3. **Export Part + Supports (3MF)**: exports the Body and its `Supports` as two separate objects in
+   one 3MF.
+
+**Why a workbench:** the module is guaranteed to be on `sys.path` (FreeCAD adds every `Mod/` dir).
+That resolves rev 1's biggest risk, a FeaturePython proxy failing to reload on reopen. It also
+gives the tool real commands and icons and makes it usable from any project, not just this one.
+**Cost:** the proxy class path (`support_feature.SupportFeature`) is saved inside every `.FCStd`
+that uses it, so module and class names are a frozen API from the first saved file.
+
+**Where the settings live:** each project that uses the tool keeps its own `Support*` values in its
+own `Params.FCStd`, so supports tuned for ASA in one project don't change PLA prints in another.
+The workbench owns only the *defaults* in `params_schema.py`, and those are tool defaults, not model
+literals. This project's `Params.FCStd` holds the same Support* set plus the Fixture* set.
+
+Project `macros/` still drive this project's own model changes (`00-bootstrap_params`,
+`01-build_fixture`) per the workflow conventions. The workbench is the product, and the macros
+build the test bench.
 
 ---
 
 ## PARAMETERS
 
-`Params.FCStd` → `VarSet`. Generator settings are what any user Body's supports bind to. Fixture
-settings drive the test part only.
-
-### Generator (group `Support`)
+### Generator (group `Support`, created by *Ensure Support Params*)
 
 | Name | Type | Default | Meaning |
 |---|---|---|---|
 | `OverhangAngle` | App::PropertyAngle | 45° | A face needs support when it leans past this angle from vertical (normal.z < −sin(angle)) |
 | `LineWidth` | App::PropertyLength | 0.42 mm | Slicer extrusion line width (0.4 nozzle). The gap is scaled from this |
-| `SupportGapRatio` | App::PropertyFloat | 0.25 | Gap as a fraction of `LineWidth` (from the video: "0.25 the layer width") |
+| `SupportGapRatio` | App::PropertyFloat | 0.25 | Gap as a fraction of `LineWidth` (video: "0.25 the layer width") |
 | `SupportGap` | App::PropertyLength | `=LineWidth * SupportGapRatio` → 0.105 mm | Derived: air gap between part and wedge |
-| `SupportWallThick` | App::PropertyLength | `=2 * LineWidth` → 0.84 mm | Wedge plate thickness. Kept thin on purpose (video: supports "don't need to be real thick") |
-| `SupportTabLen` | App::PropertyLength | 0.5 mm | Length of each light-touch contact tab along the wedge's contact edge (0.707 mm was measured in the video at 45°, so 0.5 mm is assumed. Confirm) |
-| `SupportTabPitch` | App::PropertyLength | 10 mm | Spacing between contact tabs (estimated from the screenshot. Confirm) |
+| `SupportWallThick` | App::PropertyLength | `=2 * LineWidth` → 0.84 mm | *Minimum* wedge plate thickness (video: supports "don't need to be real thick") |
+| `SupportMaxSlenderness` | App::PropertyFloat | 30 | Max wedge height ÷ thickness. Taller wedges thicken automatically *(proposal)* |
+| `SupportBaseRatio` | App::PropertyFloat | 0.5 | Min footprint length on the bed ÷ wedge height, for tip-over stability *(proposal)* |
+| `SupportWedgePitch` | App::PropertyLength | 15 mm | Max spacing between wedges across a wide overhang *(proposal)* |
+| `SupportTabLen` | App::PropertyLength | 0.5 mm | Contact-tab length along the wedge edge (0.707 mm measured at 45° in the video, so 0.5 assumed) |
+| `SupportTabPitch` | App::PropertyLength | 10 mm | Spacing between contact tabs (estimated from screenshot) |
 | `MinOverhangArea` | App::PropertyArea | 4 mm² | Ignore overhang faces smaller than this (slicer bridges them) |
 
-**Interpretation to confirm:** I read "layer width" as the extrusion **line width**, not the
-layer height. With 0.42 mm lines, the gap is 0.105 mm. If you meant layer height (0.2 mm), the gap is
-0.05 mm. That's a one-Param swap either way.
+**Interpretation to confirm:** "layer width" is read as the extrusion **line width** (gap 0.105 mm).
+If it means layer height (0.2 mm), the gap is 0.05 mm. That's a one-Param swap.
 
-**Gap concept:** the video uses a single part-to-wedge gap, so `SupportGap` serves both the
-vertical gap (wedge tip under the overhang) and the lateral gap (wedge beside a wall). Both are the
-same physical interface, the support contact, so one Param doesn't break rule 4. If the test print
-shows they need different values, it gets split into `SupportZGap` / `SupportXYGap`.
+**Gap concept:** one part-to-support gap, because it's one physical interface (the support contact).
+If the test print shows the top and side gaps need different values, split it into
+`SupportZGap` / `SupportXYGap`.
 
-### Test fixture (group `Fixture`): a cantilever "Γ" shape
+### Test fixture (group `Fixture`): this project only, a cantilever "Γ"
 
 | Name | Type | Default | Meaning |
 |---|---|---|---|
@@ -65,8 +90,49 @@ shows they need different values, it gets split into `SupportZGap` / `SupportXYG
 | `FixtureHeight` | App::PropertyLength | 20 mm | Overall height (Z) |
 | `FixtureLedgeLen` | App::PropertyLength | 25 mm | Cantilever length past the column (X) |
 | `FixtureLedgeThick` | App::PropertyLength | 3 mm | Cantilever thickness; its underside is the 0° overhang under test |
+| `FixtureSlopeAngle` | App::PropertyAngle | 45° | A second, sloped overhang on the opposite side. Exercises the angled-face case shown in the video |
 
-The default SupportXYGap and fixture values are first guesses, to be tuned after the test print.
+---
+
+## WEDGE SIZING (the computation) *(proposal)*
+
+All of this lives in `wedge_math.py` as pure functions on plain tuples and floats, so it can be unit-tested
+without FreeCAD. `support_feature.py` extracts the numbers from the B-rep, calls these functions,
+and turns the results back into solids.
+
+For each qualifying overhang face **F** (planar in v1):
+
+1. **Frame.** `n` = F's outward normal. `d` = the horizontal "downhill" direction, `normalize(n.x, n.y)`
+   (for a level face, `d` = the face's longest horizontal extent). `w` = horizontal, ⟂ `d`.
+   Wedges stand in vertical planes spanned by `d` and Z.
+2. **Wedge count and positions across the face.** `W` = F's extent along `w`, inset by
+   `SupportGap + t/2` on each side. `n_wedges = max(1, ceil(W / SupportWedgePitch))`. They're
+   evenly spaced, with one centered when `n_wedges = 1`.
+3. **Contact line per wedge.** Cut F with the wedge's vertical plane to get segment `P_lo → P_hi`.
+   Then offset it straight down by `SupportGap` (a vertical gap, so it prints as an exact air layer).
+4. **Height.** `h(s) = z_contact(s) − bed_z` along the segment; `h_max = max(h)`.
+5. **Thickness.** `t = max(SupportWallThick, h_max / SupportMaxSlenderness)`.
+   Short wedges stay at the thin minimum, and tall ones get just enough stiffness not to wobble under the nozzle.
+6. **Profile (in the d–Z plane).** The polygon bounded by the contact segment, the bed, and verticals
+   down from the segment ends. A sloped face gives a triangle, which is the video's wedge. A level
+   face gives a rectangle, which then gets the diagonal treatment in step 7.
+7. **Stability / footprint.** Required footprint `B_min = h_max × SupportBaseRatio`. If the
+   profile's bed length is under `B_min`, flare the foot outward along `d` (away from the part) to
+   `B_min`. The outer edge becomes a sloped hypotenuse, so the profile stays a wedge. For a level face,
+   the profile becomes a triangle with full contact along the top and a diagonal back edge.
+   *Which side of the face the hypotenuse goes on needs checking against the video.*
+8. **Tabs.** Contact length `Lc = |P_hi − P_lo|`. `n_tabs = max(2, floor(Lc / SupportTabPitch) + 1)`,
+   evenly spaced and inset `SupportTabLen` from both ends. Each tab is `SupportTabLen` × `t` and
+   bridges the gap up to the part. Whether the tabs fully touch or leave a smaller gap is open question 2.
+9. **Clearance clip.** Extrude the profile ±t/2 along `w`, fuse all wedges, then cut with
+   `part.makeOffsetShape(SupportGap)` (the tabs are added *after* this cut). If the cut removes a
+   wedge's bed contact (part material below), skip that wedge with a warning. Support-on-part is Phase 5.
+10. **Edge cases.** For `h_max < 2 × LineWidth`, skip it (too short to print a wedge; the slicer
+    bridges it). If F needs a wedge plane that hits the part before reaching the bed, step 9 catches it.
+
+`tests/test_wedge_math.py` covers, before any FreeCAD work: a level ledge, a 45° slope, a
+very tall slope (thickness grows), a short wedge (gets skipped), a wide face (multiple wedges), and the tab
+count at the boundaries.
 
 ---
 
@@ -76,97 +142,71 @@ The default SupportXYGap and fixture values are first guesses, to be tuned after
 
 1. `Fixture` (PartDesign::Body)
    1. `XZ_Datum` (PartDesign::Plane on XZ_Plane, offset bound to `-FixtureDepth/2`)
-   2. `ProfileSketch` on `XZ_Datum`: closed Γ profile (column + ledge), every dimension bound to Fixture Params, symmetric about origin X
+   2. `ProfileSketch` on `XZ_Datum`: closed profile with column, level ledge on +X, and a sloped
+      overhang at `FixtureSlopeAngle` on −X. Every dimension is bound to Fixture Params.
    3. `Pad` length `=FixtureDepth`, so the part is centered at (0,0,0) in XY per CAD_STANDARDS
-2. `Supports` (Part::FeaturePython, created by `SupportGenerator.FCMacro`)
+2. `Supports` (Part::FeaturePython, created by the *Add Supports* command)
    - `Source` → `Fixture`
-   - `OverhangAngle`, `Gap`, `WallThick`, `TabLen`, `TabPitch`, `MinArea` → expressions `<<Params>>#VarSet.*`
-
-### Support algorithm (`SupportFeature.execute`)
-
-1. `part = Source.Shape`; `bed_z = part.BoundBox.ZMin`.
-2. Overhang faces: every face whose outward normal has `z < −sin(OverhangAngle)`, whose
-   `ZMin > bed_z + SupportGap` (not on the bed), and whose `Area ≥ MinArea`.
-   **v1 handles planar faces only**; curved faces are skipped with a console warning.
-3. For each overhang face: build one **triangular wedge (gusset) plate**, `SupportWallThick`
-   thick. The plate stands on `bed_z`, and its sloped long edge runs parallel to the overhang's
-   underside. This matches the blue wedge in the video screenshot (5:52, "Modeling Light-Touch
-   Support in Fusion").
-4. Gap: offset the wedge's contact edge down/away by `SupportGap`, then cut the wedge with
-   `part.makeOffsetShape(SupportGap)`, which holds a uniform gap everywhere.
-5. **Light-touch tabs:** add small tabs at `SupportTabPitch` along the contact strip, each
-   `SupportTabLen` long. They bridge the gap up to the part, and they're the only points where the
-   support and the part touch (screenshots: evenly spaced nubs along the wedge's top strip, one
-   edge measured at 0.707 mm). *Whether the tabs touch at zero gap or keep a reduced gap is
-   unconfirmed.*
-6. `obj.Shape = result` (an empty compound when nothing needs support).
+   - every input property → `<<Params>>#VarSet.*`
 
 ### Export
 
 In the video, the part and supports were exported as STEP, imported into the slicer, and run through
-"Split to objects". Here, the Body and `Supports` are exported as **two separate objects in one 3MF**
-(`3mf/`), so the split happens at export and no slicer step is needed. STLs also go to `stl/`.
-Slicer: slicer supports off, both objects on one plate.
-
-**Verify in Phase 4, not assumed:** Creality Print has to import FreeCAD's 3MF as two objects
-rather than one merged mesh. If it merges them, fall back to a custom 3MF writer (the
-CircleInlayRouterJig export macro already writes Creality project 3MFs) or to STEP + split.
+"Split to objects". Here, the *Export* command writes the Body and `Supports` as **two objects in one
+3MF** (`3mf/`), plus STLs (`stl/`). Slicer: slicer supports off.
+**Verify in Phase 4:** does Creality Print import it as two objects? If it merges them, adapt the
+CircleInlayRouterJig custom 3MF writer.
 
 ---
 
 ## CONSTRAINT STRATEGY
 
-- **Fixture sketch:** fully constrained. Every Distance/DistanceX/DistanceY is bound to a Fixture
-  Param, and symmetry about the V axis keeps it centered. The sketch attaches to a datum plane,
-  never a face (hard rule 3).
-- **Generator:** has no sketches. Its numeric inputs are FeaturePython properties, each bound with
-  `setExpression` to `<<Params>>#VarSet.*`. The macro wipes and re-binds them on re-run (idempotent).
-- Literals in `support_generator.py` are limited to numeric tolerances (e.g. 1e-6 comparisons),
-  documented inline.
+- **Fixture sketch:** fully constrained. Every dimension is bound to a Fixture Param, and the sketch
+  sits on a datum plane, never a face.
+- **Generator:** has no sketches. Every numeric input is a FeaturePython property bound with
+  `setExpression` to `<<Params>>#VarSet.*`. *Add Supports* wipes and re-binds them on re-run.
+- **Literals in workbench code:** only `params_schema.py` defaults and numeric tolerances
+  (e.g. 1e-6), both documented inline.
 
 ---
 
 ## VALIDATION
 
-1. `python3 scripts/audit_parametric.py`: clean.
-2. **Gap check by distance, not volume** (per the print-in-place lesson):
-   `part.distToShape(supports_without_tabs)[0] ≥ SupportGap − 0.005`. A touching support has 0
-   interference volume but still fuses. Tabs are checked separately against their intended contact.
-3. Per overhang face: measured vertical gap at the face centroid = `SupportGap` ± 0.005.
-4. `Supports.Shape.isValid()`, all solids closed; `Supports` ZMin == part ZMin (sits on bed).
-5. **Flex test:** change `OverhangAngle`, `SupportGapRatio`, `SupportWallThick`, and
-   `FixtureLedgeLen` in Params, recompute, and re-run checks 2–4. A binding that doesn't move the
-   geometry counts as a failure.
-6. Close and reopen `SupportGenerator.FCStd`. `Supports` must recompute, which proves the proxy module loads.
-7. **PLA test print** of fixture + supports at `LayerHeight`. Record removal quality and the overhang
-   surface finish in CLAUDE.md's print profile. Tune `SupportXYGap` / `SupportZGapLayers`.
+1. `python3 workbench/SupportGenerator/tests/test_wedge_math.py`: all pass.
+2. `python3 scripts/audit_parametric.py`: clean.
+3. **Gap by distance, not volume:** `part.distToShape(wedges_without_tabs)[0] ≥ SupportGap − 0.005`.
+4. Per wedge: the vertical gap at the contact midpoint = `SupportGap` ± 0.005, `t` matches step 5,
+   and the footprint is ≥ `B_min`.
+5. `Supports.Shape.isValid()`, closed solids, and `Supports` ZMin == part ZMin.
+6. **Flex test:** change `OverhangAngle`, `SupportGapRatio`, `SupportMaxSlenderness`,
+   `FixtureHeight`, and `FixtureSlopeAngle`, recompute, and re-check 3–5. A binding that doesn't
+   move the geometry counts as a failure.
+7. Restart FreeCAD, reopen `SupportGenerator.FCStd`. `Supports` must recompute, which proves the proxy reloads.
+8. **PLA test print**: record removal quality + overhang finish in CLAUDE.md's print profile, then tune.
 
 ---
 
 ## PHASES
 
-0. **Environment + spikes:** MCP connection, GUI mode, `temp_work` document (Step 4). Spike the
-   FeaturePython reload question (sys.path) and the uniform-gap cut (algorithm step 4).
-1. `00-bootstrap_params` → `Params.FCStd` (save only with approval).
-2. `01-build_fixture` → `SupportGenerator.FCStd` fixture Body.
-3. `support_generator.py` + `SupportGenerator.FCMacro`; run on the fixture; validation 1–6.
-4. Export a two-object 3MF + STLs → confirm Creality Print sees two objects → test print → tune → record profile.
-5. (Later) Curved faces, support-on-part refinements, and mesh input.
+0. **Environment + spikes:** MCP connection, GUI mode, `temp_work` document (Step 4). Spike
+   `makeOffsetShape` on the fixture (step 9) and FeaturePython reload from `Mod/`.
+1. `wedge_math.py` + tests, test-first. No FreeCAD needed.
+2. `00-bootstrap_params` → `Params.FCStd`; `01-build_fixture` → fixture Body. Save only with approval.
+3. Workbench skeleton (stub loader, commands, schema) → symlink into `Mod/` → restart FreeCAD.
+4. `support_feature.py`, then *Add Supports* on the fixture; validation 1–7.
+5. *Export*: two-object 3MF → Creality check → test print → tune → record profile.
+6. (Later) Curved faces, support-on-part, mesh input, and an optional task panel to preview/override per face.
 
 ---
 
 ## Open questions (answer before approval)
 
-Answered 2026-10-23: supports are thin, the gap is 0.25 × layer width, supports are a separate object,
-and 3MF export replaces STEP + split.
-
-Answered from the screenshots: the wedge is a **triangular gusset plate**, it's a separate component,
-and contact is through **small spaced tabs** along a narrow strip.
+Answered 2026-10-23: supports are thin; the gap is 0.25 × layer width; supports are a separate object;
+3MF replaces STEP + split; the wedge is a triangular gusset with small spaced contact tabs; delivered as a workbench.
 
 1. **"Layer width":** line width (0.105 mm gap) or layer height (0.05 mm)?
-2. **Tabs:** do they touch the part (zero gap, so the tabs are what breaks), or do they keep the
-   0.25× gap too? And what does the 0.707 mm measurement in the video belong to: tab length, width, or height?
-3. **Part-side flats:** does he add flats or landing pads to the part itself (`Support Flats 1/2` sketches
-   in Body1)? If so, the generator only builds the support, and part-side features stay
-   the user's job in v1.
-4. How thick is the wedge plate (currently `2 × LineWidth` = 0.84 mm)?
+2. **Tabs:** do they touch the part (zero gap), or keep a reduced gap? What did the 0.707 mm measure?
+3. **Part-side flats** (`Support Flats 1/2` in his Body1): does he add landing pads to the part? v1
+   assumes no, so the generator never modifies your part.
+4. **Wedge sizing in the video:** does he size the wedge by any rule (base vs height, thickness)? If not,
+   the *(proposal)* defaults above (base ≥ 0.5 × height, slenderness ≤ 30, pitch 15 mm) stand until the test print.

@@ -1,6 +1,7 @@
 # Project rules — SupportGenerator
 
-This project is a **tool**, not a single part. It's a FeaturePython support generator whose output
+This project is a **tool**, not a single part. It's a FreeCAD **workbench** (`workbench/SupportGenerator/`,
+symlinked into `Mod/`) whose FeaturePython `Supports` object
 has to follow any Body it's pointed at. The main parametric risk is the generated `Supports`
 object going **stale or literal**: a one-shot `Part::Feature`, a gap typed as `0.105` instead of
 bound to `<<Params>>#VarSet.SupportGap`, or a proxy module that fails to load on reopen and leaves a
@@ -17,8 +18,10 @@ with a flex test (change the Param, recompute, re-measure).
 
 1. **Everything parametric.** This covers the test-fixture sketch (bind every dimension to the
    `Fixture*` Params) and the `Supports` FeaturePython properties (`OverhangAngle`, `Gap`,
-   `WallThick`, `TabLen`, `TabPitch`, `MinArea` → `<<Params>>#VarSet.*`). Literals in `support_generator.py`
-   are limited to numeric tolerances, commented inline. No prior incident; this is a fresh project.
+   `WallThick`, `MaxSlenderness`, `BaseRatio`, `WedgePitch`, `TabLen`, `TabPitch`, `MinArea` →
+   `<<Params>>#VarSet.*`). Workbench code may contain only the tool defaults in `params_schema.py`
+   and numeric tolerances, both commented inline. Wedge *sizing* (thickness, footprint, wedge and
+   tab counts) is computed in `wedge_math.py` from those Params, never hard-coded. No prior incident; this is a fresh project.
 
 2. **No fixing geometry by editing raw sketch coordinates.** No prior incident in this project; rule
    applies preventively. A wrong support shape is fixed in the algorithm or a Param, never by
@@ -55,7 +58,7 @@ There are two objects, and they are never fused:
 | File | Role | Depends on | Status |
 |---|---|---|---|
 | `Params.FCStd` | VarSet: generator + fixture Params | — | ⏳ not yet created (`macros/00-bootstrap_params.FCMacro`, Phase 1) |
-| `SupportGenerator.FCStd` | Fixture Body + `Supports` | `Params.FCStd`, `macros/support_generator.py` | ⏳ not yet created (Phase 2–3) |
+| `SupportGenerator.FCStd` | Fixture Body + `Supports` | `Params.FCStd`, the SupportGenerator workbench | ⏳ not yet created (Phase 2–4) |
 
 No broken files.
 
@@ -118,13 +121,19 @@ No project-scoped memories yet — this is a fresh project. Relevant global ones
 
 **Project-specific:**
 
-- Macros are symlinked into `~/Library/Application Support/FreeCAD/v1-1/Macro/` with the
-  **`SG-` prefix** (e.g. `SG-SupportGenerator.FCMacro`, `SG-support_generator.py`).
-- `support_generator.py` is a **module**, not a macro. FeaturePython proxies pickle by module
-  path, so renaming or moving it breaks every saved `Supports` object. Treat its name as an API.
-- Whether FreeCAD's Macro dir is on `sys.path` at document load is **unverified** (plan.md Phase 0).
-  Don't assume it is.
-- The two-object 3MF → Creality Print import is **unverified** (plan.md Phase 4). If Creality merges
+- **Workbench, not macro.** Source is `workbench/SupportGenerator/`, symlinked to
+  `~/Library/Application Support/FreeCAD/v1-1/Mod/SupportGenerator`. Changes to it need a FreeCAD
+  restart. Project `macros/` (`SG-` prefix in FreeCAD's Macro dir) only build *this project's*
+  Params and fixture.
+- `InitGui.py` is a **stub loader** that execs `_workbench.py` with an explicit namespace. Don't put
+  workbench code in `InitGui.py` (see global memory `feedback_freecad_initgui_exec.md`).
+- **Frozen API:** the proxy path `support_feature.SupportFeature` is saved inside every model file
+  that uses supports. Renaming the module or class breaks those files. Add a compatibility alias
+  rather than renaming.
+- **Settings are per project:** *Ensure Support Params* adds `Support*` variables to whichever
+  project's `Params` VarSet is open. Don't point another project's supports at this project's Params.
+- `wedge_math.py` has **no FreeCAD imports**, so it's testable with plain `python3`. Keep it that way.
+- The two-object 3MF → Creality Print import is **unverified** (plan.md Phase 5). If Creality merges
   the objects, see the CircleInlayRouterJig export macro for a custom 3MF writer.
 
 ---

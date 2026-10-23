@@ -4,7 +4,7 @@
 > **human input** per PROJECT_BOOTSTRAP — edit it freely; plan.md follows from it.
 
 Goal:
-A FreeCAD macro that generates **modeled (CAD-designed) print supports** for a selected
+A FreeCAD tool (workbench or macro; Bradley: "doesn't have to be a macro") that generates **modeled (CAD-designed) print supports** for a selected
 PartDesign Body. The supports are separate solids with a deliberate air gap to the part, so they
 snap off cleanly and leave no trace. The slicer prints them as ordinary model geometry, with slicer
 supports turned off.
@@ -22,6 +22,7 @@ Key points from the video (Bradley, 2026-10-23):
 
 Constraints:
 
+* Wedge size must be computed relative to the part (overhang height and extent), not fixed.
 * Must follow CAD_STANDARDS.md and the global parametric rules (~/.claude/CLAUDE.md).
 * Generator settings (overhang angle, Z gap, XY gap, etc.) live in Params.FCStd and are
   bound by expression; there are no literals in the macro's output objects.
