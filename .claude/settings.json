@@ -1,0 +1,17 @@
+{
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "cmd=$(jq -r '.tool_input.command // \"\"'); if printf '%s' \"$cmd\" | grep -qiE '\\.fcstd' && printf '%s' \"$cmd\" | grep -qiE '(^|[|&;(`$ ])(unzip|zip|grep|egrep|fgrep|zgrep|zcat|cat|tac|sed|awk|head|tail|less|more|strings|xxd|hexdump|od|vi|vim|nano)([[:space:]]|$)'; then printf '{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"Do not read or edit .FCStd files with shell tools. Use the FreeCAD MCP bridge: get_connection_status, open_document, list_objects, inspect_object, execute_python, and macros. Only fall back to read-only unzip if the MCP bridge is genuinely unreachable, and ask the user first.\"}}'; fi",
+            "timeout": 10,
+            "statusMessage": "Checking for raw .FCStd access…"
+          }
+        ]
+      }
+    ]
+  }
+}
