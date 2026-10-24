@@ -1,0 +1,37 @@
+# -*- coding: utf-8 -*-
+"""SupportGenerator 03: export the Fixture and its Supports for the test print.
+
+Writes 3mf/SupportGenerator-Fixture.3mf (two named objects, model coordinates, read back
+and verified) and stl/Fixture.stl + stl/Fixture_Supports.stl, through the same code as the
+workbench's Export command (supportgen.export). Does NOT save either document.
+
+Slicer: import the 3MF as-is (two objects), slicer supports OFF, and don't Arrange
+(it would pull the supports away from the part).
+"""
+import importlib
+import os
+import sys
+
+import FreeCAD as App
+
+PROJECT = "/Users/bradleycorner/Documents/3dPrinting/Commercial License/SupportGenerator"
+
+sys.path.insert(0, os.path.join(PROJECT, "scripts"))
+import test_env_guard  # noqa: E402
+importlib.reload(test_env_guard)
+App.Console.PrintMessage(test_env_guard.require_laptop(need_freecad=True) + "\n")
+
+from supportgen import export, feature  # noqa: E402  (installed workbench)
+
+doc = App.getDocument("SupportGenerator")
+fixture = doc.getObject("Fixture")
+sup = feature.find_supports(doc, fixture)
+if sup is None:
+    raise RuntimeError("Fixture has no Supports: run SG-02-add_supports first")
+
+rep = export.export_part_and_supports(
+    sup, os.path.join(PROJECT, "3mf", "SupportGenerator-Fixture.3mf"), os.path.join(PROJECT, "stl"))
+for o in rep["objects"]:
+    print(f"SG-03: 3MF object {o['name']}: {o['vertices']} vertices, {o['triangles']} triangles")
+print(f"SG-03: wrote {rep['3mf']} and {', '.join(os.path.basename(p) for p in rep['stl'])}. "
+      "Documents NOT saved.")

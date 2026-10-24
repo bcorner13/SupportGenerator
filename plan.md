@@ -321,6 +321,22 @@ projects before opening this one (it happened on the reopen: UnderDeskCableTray 
 
 ---
 
+## PHASE 5 RESULTS (2026-10-24, in progress)
+
+Banner: `TEST ENVIRONMENT VERIFIED: NewMacBook.local uuid D8B58553 FreeCAD 1.1.4 GUI`.
+- `supportgen/export.py` writes the 3MF itself: two named `<object>`s + two build `<item>`s, model
+  coordinates, identity transforms. FreeCAD's `Mesh.export` also gives two objects (probed), but
+  unnamed and unchecked. *Export Part + Supports* (gui) and `macros/03-export_print_files.FCMacro`
+  both use it. Pre-flight: valid solids, same bed plane, nothing touched/invalid.
+- `3mf/SupportGenerator-Fixture.3mf` + `stl/Fixture.stl`, `stl/Fixture_Supports.stl`. Independent
+  read-back (parse the XML, rebuild solids): objects `Fixture` / `Fixture_Supports`, volumes equal
+  the model (7750 / 4202.425 mm³), supports = 6 components, part-to-supports distance 0 (tabs
+  touch), overlap 0.
+- **Open (Bradley, in the Creality GUI; its macOS CLI doesn't slice):** imports as two objects in
+  place? Supports off, no Arrange. Then the PLA test print, removal quality, tune, print profile.
+
+---
+
 ## PHASES
 
 0. **Environment + spikes:** MCP connection, GUI mode, `temp_work` document (Step 4). Spike

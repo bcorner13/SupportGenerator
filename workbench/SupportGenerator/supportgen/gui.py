@@ -95,14 +95,47 @@ class _ExportPartAndSupports:
     def GetResources(self):
         return {"Pixmap": _ICON,
                 "MenuText": "Export Part + Supports (3MF)",
-                "ToolTip": "Export the Body and its Supports as two objects in one 3MF "
-                           "(not built yet: plan.md Phase 5)"}
+                "ToolTip": "Export the selected Supports (or the Body that has them) and its "
+                           "part as two objects in one 3MF, plus STLs if the project has an "
+                           "stl/ folder. In the slicer: don't Arrange, slicer supports off"}
+
+    @staticmethod
+    def _selected_supports():
+        from supportgen import feature
+        sel = Gui.Selection.getSelection()
+        if len(sel) != 1:
+            return None
+        obj = sel[0]
+        if type(getattr(obj, "Proxy", None)).__name__ == "SupportFeature":
+            return obj
+        return feature.find_supports(obj.Document, obj)
 
     def IsActive(self):
-        return False  # Phase 5
+        return self._selected_supports() is not None
 
     def Activated(self):
-        pass
+        from PySide import QtGui
+        from supportgen import export
+        sup = self._selected_supports()
+        doc = sup.Document
+        base = os.path.dirname(doc.FileName) if doc.FileName else os.path.expanduser("~")
+        tmf_dir = os.path.join(base, "3mf")
+        start = os.path.join(tmf_dir if os.path.isdir(tmf_dir) else base,
+                             f"{sup.Source.Label}.3mf")
+        path, _ = QtGui.QFileDialog.getSaveFileName(
+            Gui.getMainWindow(), "Export Part + Supports", start, "3MF (*.3mf)")
+        if not path:
+            return
+        stl_dir = os.path.join(base, "stl")
+        try:
+            rep = export.export_part_and_supports(
+                sup, path, stl_dir if os.path.isdir(stl_dir) else None)
+        except Exception as e:
+            App.Console.PrintError(f"SupportGenerator: export failed: {e}\n")
+            return
+        for o in rep["objects"]:
+            _msg(f"3MF object {o['name']}: {o['triangles']} triangles")
+        _msg(f"wrote {rep['3mf']}" + (f" and {len(rep['stl'])} STLs" if rep["stl"] else ""))
 
 
 COMMANDS = {
