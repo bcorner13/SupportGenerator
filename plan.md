@@ -113,6 +113,7 @@ If the test print shows the top and side gaps need different values, split it in
 | `FixtureLedgeLen` | App::PropertyLength | 25 mm | Cantilever length past the column (X) |
 | `FixtureLedgeThick` | App::PropertyLength | 3 mm | Cantilever thickness; its underside is the 0° overhang under test |
 | `FixtureSlopeAngle` | App::PropertyAngle | 45° | A second, sloped overhang on the opposite side. Exercises the angled-face case shown in the video |
+| `FixtureSlopeRun` | App::PropertyLength | 15 mm | Horizontal reach of the slope from the column (−X). Added in Phase 2: without it the slope's extent was undetermined (the sketch had 1 DOF left) |
 
 ---
 
@@ -185,10 +186,17 @@ tab height == gap, and gap measured normal to the face.
 ### `SupportGenerator.FCStd` (fixture + generated supports)
 
 1. `Fixture` (PartDesign::Body)
-   1. `XZ_Datum` (PartDesign::Plane on XZ_Plane, offset bound to `-FixtureDepth/2`)
+   1. `XZ_Datum` (PartDesign::Plane, FlatFace on XZ_Plane, no offset). As built: the Pad is
+      Midplane, so the datum needs no `-FixtureDepth/2` offset to center the part in Y.
    2. `ProfileSketch` on `XZ_Datum`: closed profile with column, level ledge on +X, and a sloped
-      overhang at `FixtureSlopeAngle` on −X. Every dimension is bound to Fixture Params.
-   3. `Pad` length `=FixtureDepth`, so the part is centered at (0,0,0) in XY per CAD_STANDARDS
+      overhang at `FixtureSlopeAngle` reaching `FixtureSlopeRun` on −X. Every dimension is bound to
+      Fixture Params; the overall X extent is centered on the origin by a bound DistanceX.
+   3. `Pad` Midplane, length `=FixtureDepth`, so the part is centered at (0,0,0) in XY per CAD_STANDARDS
+
+**Both documents must be on disk before binding.** FreeCAD 1.1.4 refuses a cross-document
+expression unless the Params file ("Linked document not saved") *and* the owner file ("Owner
+document not saved") have been saved at least once. `01-build_fixture` checks both and stops with a
+message. The same applies to Phase 4: *Add Supports* must refuse an unsaved target document.
 2. `Supports` (Part::FeaturePython, created by the *Add Supports* command)
    - `Source` → `Fixture`
    - every input property → `<<Params>>#VarSet.*`
@@ -261,6 +269,19 @@ FreeCADMCPAgent already ships a bare `_workbench.py`, and other addons expose ge
 uniquely named package, **`supportgen`**, before anything was saved. The actual restart-and-reopen test
 is validation step 7, run in Phase 4 once the workbench is installed. (The Macro dir is also on
 `sys.path`, which answers rev 1's open question, but a workbench is no longer conditional on it.)
+
+---
+
+## PHASE 2 RESULTS (2026-10-24)
+
+Banner: `TEST ENVIRONMENT VERIFIED: NewMacBook.local uuid D8B58553 FreeCAD 1.1.4 GUI`.
+- `00-bootstrap_params`: 13 Support + 7 Fixture variables; `Params.FCStd` saved with approval.
+- `01-build_fixture`: sketch fully constrained (7 lines, 21 constraints, 0 DOF), all 7 dims + Pad
+  length bound; 1 valid solid, 7750 mm³ (= 387.5 mm² × 20, hand-checked); bbox X −25..25,
+  Y −10..10, Z 0..20; overhang faces: ledge underside (n_z −1, 500 mm²) and 45° slope
+  (n_z −0.707, 424 mm²). Flex: `FixtureLedgeLen` +5 → X −27.5..27.5, still centered and fully
+  constrained, then restored. `validate_document`: 12/12 valid. Audit clean on the saved file.
+- Screenshots: `images/fixture_isometric.png`, `images/fixture_front.png`.
 
 ---
 

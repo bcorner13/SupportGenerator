@@ -61,8 +61,11 @@ There are two objects, and they are never fused:
 
 | File | Role | Depends on | Status |
 |---|---|---|---|
-| `Params.FCStd` | VarSet: generator + fixture Params | — | ⏳ not yet created (`macros/00-bootstrap_params.FCMacro`, Phase 1) |
-| `SupportGenerator.FCStd` | Fixture Body + `Supports` | `Params.FCStd`, the SupportGenerator workbench | ⏳ not yet created (Phase 2–4) |
+| `Params.FCStd` | VarSet: generator + fixture Params | — | ✅ 13 Support + 7 Fixture vars (`macros/00-bootstrap_params.FCMacro`) |
+| `SupportGenerator.FCStd` | Fixture Body + `Supports` | `Params.FCStd`, the SupportGenerator workbench | ✅ Fixture built (`macros/01-build_fixture.FCMacro`); `Supports` ⏳ Phase 4 |
+
+Cross-document bindings need **both** files saved on disk first (FreeCAD 1.1.4: "Linked document not
+saved" / "Owner document not saved"). Save a new document once, with approval, before binding.
 
 No broken files.
 
@@ -74,7 +77,7 @@ See `plan.md` → PARAMETERS. Groups:
 - **Support** (source of truth: `workbench/SupportGenerator/supportgen/params_schema.py`): `SupportOverhangAngle`, `SupportLineWidth`, `SupportLayerHeight`, `SupportGap`, `SupportWedgeAngle`,
   `SupportPlateThick`, `SupportMaxSlenderness`, `SupportContactLand` (derived, 2 × LineWidth),
   `SupportChamferDepth`, `SupportWedgePitch`, `SupportTabLayers`, `SupportTabPitch`, `SupportMinOverhangArea`.
-- **Fixture:** `FixtureColumnW`, `FixtureDepth`, `FixtureHeight`, `FixtureLedgeLen`, `FixtureLedgeThick`, `FixtureSlopeAngle`.
+- **Fixture:** `FixtureColumnW`, `FixtureDepth`, `FixtureHeight`, `FixtureLedgeLen`, `FixtureLedgeThick`, `FixtureSlopeAngle`, `FixtureSlopeRun`.
 
 Run `python3 scripts/audit_parametric.py` to check bindings.
 

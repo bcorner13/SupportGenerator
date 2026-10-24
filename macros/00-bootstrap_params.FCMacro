@@ -1,0 +1,71 @@
+# -*- coding: utf-8 -*-
+"""SupportGenerator 00: create / update this project's Params document (VarSet only).
+
+Idempotent: re-running adds only missing variables and never changes existing values.
+Does NOT save (PROJECT_BOOTSTRAP Step 6). Save Params.FCStd yourself after review.
+
+- Support* variables come from the workbench (supportgen.params.ensure_params), so this
+  project's Params is filled exactly the way any other project's would be.
+- Fixture* variables drive this project's test part only.
+"""
+import importlib
+import os
+import sys
+
+import FreeCAD as App
+
+PROJECT = "/Users/bradleycorner/Documents/3dPrinting/Commercial License/SupportGenerator"
+PARAMS_PATH = os.path.join(PROJECT, "Params.FCStd")
+
+# Results only count on the enrolled laptop (PROJECT_BOOTSTRAP Step 8).
+sys.path.insert(0, os.path.join(PROJECT, "scripts"))
+import test_env_guard  # noqa: E402
+importlib.reload(test_env_guard)
+App.Console.PrintMessage(test_env_guard.require_laptop(need_freecad=True) + "\n")
+
+from supportgen import params as sg_params  # noqa: E402  (installed workbench, Mod/ is on sys.path)
+importlib.reload(sg_params)
+
+FIXTURE_GROUP = "Fixture"
+FIXTURE = [
+    ("FixtureColumnW", "App::PropertyLength", 10.0, "Column width (X)"),
+    ("FixtureDepth", "App::PropertyLength", 20.0, "Part depth (Y), padded symmetric about Y=0"),
+    ("FixtureHeight", "App::PropertyLength", 20.0, "Overall height (Z)"),
+    ("FixtureLedgeLen", "App::PropertyLength", 25.0, "Level cantilever length past the column (+X)"),
+    ("FixtureLedgeThick", "App::PropertyLength", 3.0, "Cantilever thickness; its underside is the level overhang"),
+    ("FixtureSlopeAngle", "App::PropertyAngle", 45.0, "Sloped overhang angle on -X (the video's case)"),
+    ("FixtureSlopeRun", "App::PropertyLength", 15.0, "Horizontal reach of the sloped overhang from the column"),
+]
+
+
+def params_document():
+    """This project's Params doc. Refuses another project's Params doc that's already open."""
+    for d in App.listDocuments().values():
+        if "Params" in (d.Label, d.Name):
+            if d.FileName and os.path.realpath(d.FileName) != os.path.realpath(PARAMS_PATH):
+                raise RuntimeError(f"A different Params document is open ({d.FileName}). "
+                                   "Close it first: cross-document expressions bind by label.")
+            return d
+    if os.path.exists(PARAMS_PATH):
+        return App.openDocument(PARAMS_PATH)
+    return App.newDocument("Params")
+
+
+doc = params_document()
+vs = doc.getObject("VarSet") or doc.addObject("App::VarSet", "VarSet")
+
+report = sg_params.ensure_params(vs)
+fixture_added = []
+for name, typ, default, tip in FIXTURE:
+    if name in vs.PropertiesList:
+        continue
+    vs.addProperty(typ, name, FIXTURE_GROUP, tip)
+    setattr(vs, name, default)
+    fixture_added.append(name)
+doc.recompute()
+
+App.Console.PrintMessage(
+    f"SG-00: Support added {len(report['added'])}, kept {len(report['kept'])}; "
+    f"Fixture added {len(fixture_added)}. {doc.Label} NOT saved.\n")
+for name, have, want in report["conflicts"]:
+    App.Console.PrintWarning(f"SG-00: {name} exists as {have}, expected {want}; left unchanged\n")

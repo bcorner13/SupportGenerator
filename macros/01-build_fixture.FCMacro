@@ -1,0 +1,138 @@
+# -*- coding: utf-8 -*-
+"""SupportGenerator 01: build the parametric test fixture Body in SupportGenerator.FCStd.
+
+Fixture: a column with a level ledge on +X (FixtureLedgeLen x FixtureLedgeThick at the top)
+and a sloped overhang on -X (FixtureSlopeAngle, reaching FixtureSlopeRun out from the
+column), padded FixtureDepth symmetric about Y=0. Its overall X extent is centered on the
+origin (CAD_STANDARDS: centered at 0,0,0).
+
+Idempotent: re-running wipes and re-adds the sketch geometry + constraints in place
+(objects are kept, so links to Fixture, e.g. a future Supports.Source, survive).
+Every dimension binds to <<Params>>#VarSet.*. Sketch attaches to a datum plane, never a face.
+Requires the Params document (macro 00) to be open. Does NOT save.
+
+Profile (sketch x = world X, sketch y = world Z), points P0..P6, line Li = Pi -> Pi+1:
+    P5 ______________________________ P4
+       \\                            |  <- ledge (LedgeThick)
+        \\ slope    P6         P2 ____| P3
+         \\_________|  column  |
+                    |__________|
+                    P0         P1      (P0 on the bed, Z=0)
+"""
+import importlib
+import math
+import os
+import sys
+
+import FreeCAD as App
+import Part
+import Sketcher
+
+PROJECT = "/Users/bradleycorner/Documents/3dPrinting/Commercial License/SupportGenerator"
+DOC_PATH = os.path.join(PROJECT, "SupportGenerator.FCStd")
+P = "<<Params>>#VarSet."
+
+sys.path.insert(0, os.path.join(PROJECT, "scripts"))
+import test_env_guard  # noqa: E402
+importlib.reload(test_env_guard)
+App.Console.PrintMessage(test_env_guard.require_laptop(need_freecad=True) + "\n")
+
+V = App.Vector
+
+
+def params_varset():
+    for d in App.listDocuments().values():
+        if "Params" in (d.Label, d.Name):
+            vs = d.getObject("VarSet")
+            if vs is not None:
+                return vs
+    raise RuntimeError("Params document not open: run SG-00-bootstrap_params first")
+
+
+def fixture_document():
+    for d in App.listDocuments().values():
+        if d.Name == "SupportGenerator":
+            return d
+    if os.path.exists(DOC_PATH):
+        return App.openDocument(DOC_PATH)
+    return App.newDocument("SupportGenerator")
+
+
+def get_or_new(body, type_id, name):
+    obj = body.Document.getObject(name)
+    return obj if obj is not None else body.newObject(type_id, name)
+
+
+vs = params_varset()
+doc = fixture_document()
+
+# FreeCAD 1.1.4 stores cross-document expressions as relative file paths, so BOTH documents
+# must already be on disk ("Linked document not saved" / "Owner document not saved").
+for d, label in ((vs.Document, "Params.FCStd"), (doc, "SupportGenerator.FCStd")):
+    if not d.FileName:
+        raise RuntimeError(f"{label} has never been saved. Cross-document bindings need both "
+                           "files on disk; save it once (with Bradley's approval), then re-run.")
+
+body = doc.getObject("Fixture") or doc.addObject("PartDesign::Body", "Fixture")
+xz = [f for f in body.Origin.OriginFeatures if f.Role == "XZ_Plane"][0]
+
+datum = get_or_new(body, "PartDesign::Plane", "XZ_Datum")
+datum.AttachmentSupport = [(xz, "")]
+datum.MapMode = "FlatFace"
+
+sk = get_or_new(body, "Sketcher::SketchObject", "ProfileSketch")
+sk.AttachmentSupport = [(datum, "")]
+sk.MapMode = "FlatFace"
+
+# --- geometry: start near the solution so the solver converges cleanly ---
+W, H = vs.FixtureColumnW.Value, vs.FixtureHeight.Value
+LL, LT = vs.FixtureLedgeLen.Value, vs.FixtureLedgeThick.Value
+RUN, ANG = vs.FixtureSlopeRun.Value, vs.FixtureSlopeAngle.Value
+T = RUN + W + LL
+x5 = -T / 2
+xcl = x5 + RUN
+xcr = xcl + W
+pts = [(xcl, 0), (xcr, 0), (xcr, H - LT), (xcr + LL, H - LT), (xcr + LL, H), (x5, H),
+       (xcl, H - RUN * math.tan(math.radians(ANG)))]
+
+for name in list(sk.ExpressionEngine):  # drop stale bindings before wiping constraints
+    sk.setExpression(name[0], None)
+sk.deleteAllGeometry()
+for i in range(7):
+    (xa, ya), (xb, yb) = pts[i], pts[(i + 1) % 7]
+    sk.addGeometry(Part.LineSegment(V(xa, ya, 0), V(xb, yb, 0)), False)
+
+C = Sketcher.Constraint
+geo = [C("Coincident", i, 2, (i + 1) % 7, 1) for i in range(7)]
+geo += [C("Horizontal", i) for i in (0, 2, 4)]
+geo += [C("Vertical", i) for i in (1, 3, 6)]
+geo += [C("PointOnObject", 0, 1, -1)]  # P0 on the sketch X axis = the bed
+sk.addConstraint(geo)
+
+dims = [  # (constraint, expression)
+    (C("DistanceX", 0, 1, 0, 2, W), P + "FixtureColumnW"),
+    (C("DistanceX", 2, 1, 2, 2, LL), P + "FixtureLedgeLen"),
+    (C("DistanceY", 0, 1, 4, 2, H), P + "FixtureHeight"),
+    (C("DistanceY", 3, 1, 3, 2, LT), P + "FixtureLedgeThick"),
+    (C("DistanceX", 4, 2, 5, 2, RUN), P + "FixtureSlopeRun"),
+    (C("DistanceY", 5, 2, 5, 1, RUN * math.tan(math.radians(ANG))),
+     f"{P}FixtureSlopeRun * tan({P}FixtureSlopeAngle)"),
+    (C("DistanceX", 4, 2, -1, 1, T / 2),  # P5 to the origin: centers the X extent
+     f"({P}FixtureSlopeRun + {P}FixtureColumnW + {P}FixtureLedgeLen) / 2"),
+]
+for con, expr in dims:
+    idx = sk.addConstraint(con)
+    sk.setExpression(f"Constraints[{idx}]", expr)
+
+pad = get_or_new(body, "PartDesign::Pad", "Pad")
+pad.Profile = sk
+pad.Midplane = True
+pad.setExpression("Length", P + "FixtureDepth")
+body.Tip = pad
+sk.Visibility = False
+datum.Visibility = False
+
+doc.recompute()
+App.Console.PrintMessage(
+    f"SG-01: Fixture built; sketch DOF solve={sk.solve()}, "
+    f"FullyConstrained={getattr(sk, 'FullyConstrained', 'n/a')}. {doc.Label} NOT saved.\n")
