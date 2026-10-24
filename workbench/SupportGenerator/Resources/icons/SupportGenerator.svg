@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="64" height="64" viewBox="0 0 64 64">
+  <!-- part: block with a 45-degree overhang -->
+  <path d="M6 6 H58 V18 L30 46 H6 Z" fill="#5b8fd6" stroke="#1f3f73" stroke-width="2" stroke-linejoin="round"/>
+  <!-- wedge support: right triangle under the overhang, one gap off -->
+  <path d="M60 22 V58 H24 Z" fill="#f2b33d" stroke="#8a5a00" stroke-width="2" stroke-linejoin="round"/>
+  <!-- contact tabs -->
+  <rect x="49" y="29" width="4" height="4" fill="#8a5a00" transform="rotate(45 51 31)"/>
+  <rect x="37" y="41" width="4" height="4" fill="#8a5a00" transform="rotate(45 39 43)"/>
+  <!-- bed -->
+  <line x1="2" y1="61" x2="62" y2="61" stroke="#333" stroke-width="3"/>
+</svg>

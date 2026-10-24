@@ -71,9 +71,9 @@ No broken files.
 ## Params variables (summary)
 
 See `plan.md` → PARAMETERS. Groups:
-- **Support:** `OverhangAngle`, `LineWidth`, `LayerHeight`, `SupportGap`, `SupportWedgeAngle`,
+- **Support** (source of truth: `workbench/SupportGenerator/supportgen/params_schema.py`): `SupportOverhangAngle`, `SupportLineWidth`, `SupportLayerHeight`, `SupportGap`, `SupportWedgeAngle`,
   `SupportPlateThick`, `SupportMaxSlenderness`, `SupportContactLand` (derived, 2 × LineWidth),
-  `SupportChamferDepth`, `SupportWedgePitch`, `SupportTabLayers`, `SupportTabPitch`, `MinOverhangArea`.
+  `SupportChamferDepth`, `SupportWedgePitch`, `SupportTabLayers`, `SupportTabPitch`, `SupportMinOverhangArea`.
 - **Fixture:** `FixtureColumnW`, `FixtureDepth`, `FixtureHeight`, `FixtureLedgeLen`, `FixtureLedgeThick`, `FixtureSlopeAngle`.
 
 Run `python3 scripts/audit_parametric.py` to check bindings.

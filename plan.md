@@ -69,6 +69,11 @@ build the test bench.
 
 ### Generator (group `Support`, created by *Ensure Support Params*)
 
+> **Phase 3 rename:** in code every generator variable carries the `Support` prefix
+> (`SupportOverhangAngle`, `SupportLineWidth`, `SupportLayerHeight`, `SupportMinOverhangArea`; the
+> rest already had it). Otherwise *Ensure Support Params* would adopt a same-named variable that
+> another project uses for something else. `supportgen/params_schema.py` is the source of truth.
+
 | Name | Type | Default | Meaning |
 |---|---|---|---|
 | `OverhangAngle` | App::PropertyAngle | 45° | A face needs support when it leans this far or more from vertical (normal.z ≤ −sin(angle) + 1e-6). A 45° face like the video's counts |
