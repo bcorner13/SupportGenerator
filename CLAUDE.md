@@ -3,25 +3,26 @@
 This project is a **tool**, not a single part. It's a FreeCAD **workbench** (`workbench/SupportGenerator/`,
 symlinked into `Mod/`) whose FeaturePython `Supports` object
 has to follow any Body it's pointed at. The main parametric risk is the generated `Supports`
-object going **stale or literal**: a one-shot `Part::Feature`, a gap typed as `0.05` instead of
+object going **stale or literal**: a one-shot `Part::Feature`, a gap typed as `0.25` instead of
 bound to `<<Params>>#VarSet.SupportGap`, or a proxy module that fails to load on reopen and leaves a
 dead shape behind. Every generator input must be expression-bound, and every change must be proven
 with a flex test (change the Param, recompute, re-measure).
 
 > Source technique: *"Without a Trace: 3D Printed Supports That Remove Like Magic"*
 > (https://youtu.be/1Zocl7n98xY). Claude cannot watch it, so the technique details come from
-> Bradley's summary in `intent.md`. Don't invent "what the video says."
+> Bradley's summary in `intent.md` and his video screenshots (described in plan.md rev 4). Don't
+> invent "what the video says."
 
 ---
 
 ## Hard rules (this project)
 
 1. **Everything parametric.** This covers the test-fixture sketch (bind every dimension to the
-   `Fixture*` Params) and the `Supports` FeaturePython properties (`OverhangAngle`, `Gap`,
-   `WallThick`, `MaxSlenderness`, `BaseRatio`, `WedgePitch`, `DiskDia`, `DiskPitch`, `MinArea` →
-   `<<Params>>#VarSet.*`). Workbench code may contain only the tool defaults in `params_schema.py`
-   and numeric tolerances, both commented inline. Wedge *sizing* (thickness, footprint, wedge and
-   disk counts) is computed in `wedge_math.py` from those Params, never hard-coded. No prior incident; this is a fresh project.
+   `Fixture*` Params) and every `Supports` FeaturePython input property, each bound to its
+   `<<Params>>#VarSet.*` variable (full list: plan.md → PARAMETERS → Generator). Workbench code may
+   contain only the tool defaults in `params_schema.py` and numeric tolerances, both commented inline.
+   Wedge *sizing* (plate thickness, triangle profile, chamfer, tab length from layer count, wedge and
+   tab counts) is computed in `wedge_math.py` from those Params, never hard-coded. No prior incident; this is a fresh project.
 
 2. **No fixing geometry by editing raw sketch coordinates.** No prior incident in this project; rule
    applies preventively. A wrong support shape is fixed in the algorithm or a Param, never by
@@ -31,8 +32,10 @@ with a flex test (change the Param, recompute, re-measure).
    preventively. The fixture's `ProfileSketch` attaches to `XZ_Datum`.
 
 4. **Clearance concepts stay decoupled.** Clearance Params in use:
-   - `SupportGap` (= `LayerHeight × SupportGapRatio`, 0.05 mm): air gap between the part and the support
-     wedges, on every side. This is one interface (the support contact), so one Param. If a test
+   - `SupportGap` (0.25 mm absolute, normal to the face, per the video sketch): air gap between the
+     part and the support wedges' contact land, on every side. The tabs bridge it. It was briefly
+     0.25 × layer height (0.05 mm) on 2026-10-23, but that's below slicer resolution and would fuse the
+     whole edge. Don't go back to a ratio without a test print showing it works. This is one interface (the support contact), so one Param. If a test
      print shows the top and side gaps need different values, split it into `SupportZGap` /
      `SupportXYGap`. Don't overload it.
    - No print-fit mating clearances; the fixture has no mating parts.
@@ -45,9 +48,10 @@ There are two objects, and they are never fused:
 
 - **Part**: any PartDesign Body (in this project, the `Fixture` Body: a Γ-shaped cantilever whose ledge
   underside is the overhang under test). It sits on the bed at its own ZMin.
-- **Supports** (`Part::FeaturePython`): its `Source` links to the Part. It holds thin triangular wedge (gusset) plates carrying small contact **disks** that touch the part (zero gap, zero overlap) while staying in this separate object,
-  standing on the same bed plane, their tops one `SupportGap` below each overhang face, and
-  `SupportGap` clear of every part surface. It's a **separate object** so the slicer treats it as
+- **Supports** (`Part::FeaturePython`): its `Source` links to the Part. It holds 45° right-triangle wedge plates, each with a heavily chamfered contact edge
+  (narrow land) running one `SupportGap` below the overhang face, standing on the same bed plane and
+  `SupportGap` clear of every part surface. Small **rectangular tabs** (1–2 layers tall, 5–10 mm apart)
+  on the land bridge the gap and **touch** the part (zero gap, zero overlap). They're the only contact. It's a **separate object** so the slicer treats it as
   independent geometry (the video's "split to objects" step happens at export instead).
 - Both are exported as two objects in one 3MF. Slicer supports are **off**.
 
@@ -67,9 +71,10 @@ No broken files.
 ## Params variables (summary)
 
 See `plan.md` → PARAMETERS. Groups:
-- **Support:** `OverhangAngle`, `LineWidth`, `SupportGapRatio`, `SupportGap` (derived),
-  `SupportWallThick` (derived, 2 × LineWidth), `SupportDiskDia`, `SupportDiskPitch`, `MinOverhangArea`; plus `LayerHeight`.
-- **Fixture:** `FixtureColumnW`, `FixtureDepth`, `FixtureHeight`, `FixtureLedgeLen`, `FixtureLedgeThick`.
+- **Support:** `OverhangAngle`, `LineWidth`, `LayerHeight`, `SupportGap`, `SupportWedgeAngle`,
+  `SupportPlateThick`, `SupportMaxSlenderness`, `SupportContactLand` (derived, 2 × LineWidth),
+  `SupportChamferDepth`, `SupportWedgePitch`, `SupportTabLayers`, `SupportTabPitch`, `MinOverhangArea`.
+- **Fixture:** `FixtureColumnW`, `FixtureDepth`, `FixtureHeight`, `FixtureLedgeLen`, `FixtureLedgeThick`, `FixtureSlopeAngle`.
 
 Run `python3 scripts/audit_parametric.py` to check bindings.
 
