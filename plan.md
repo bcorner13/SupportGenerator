@@ -122,20 +122,24 @@ For each qualifying overhang face **F** (planar in v1):
    (for a level face, `d` = the face's longest horizontal extent). `w` = horizontal, ⟂ `d`.
    Wedges stand in vertical planes spanned by `d` and Z.
 2. **Wedge count and positions across the face.** `W` = F's extent along `w`, inset by
-   `SupportGap + t/2` on each side. `n_wedges = max(1, ceil(W / SupportWedgePitch))`. They're
-   evenly spaced, with one centered when `n_wedges = 1`.
+   `SupportGap + t/2` on each side. One centered wedge if `W ≤ SupportWedgePitch`, otherwise
+   `ceil(W / SupportWedgePitch) + 1` wedges spanning W edge to edge, so the spacing is never more
+   than the pitch. *(Corrected in Phase 1: the earlier `ceil(W/pitch)` formula could exceed the pitch.)*
 3. **Contact line per wedge.** Cut F with the wedge's vertical plane to get segment `P_lo → P_hi`.
-   Offset it by `SupportGap` along `−n`, **normal to the face** (as dimensioned in the video sketch).
+   Offset it by `SupportGap` along the **outward** normal `n` (away from the part, toward the support),
+   **normal to the face** as dimensioned in the video sketch. Clip any part that drops below the bed.
+   *(Corrected: rev 4 said `−n`, which would push the contact into the part.)*
 4. **Height.** `h(s) = z_contact(s) − bed_z` along the segment; `h_max = max(h)`.
 5. **Thickness.** `t = max(SupportPlateThick, h_max / SupportMaxSlenderness)`.
 6. **Profile (in the d–Z plane): a right triangle**, like the video wedge (image 4).
    - **Sloped overhang** (the video case): the hypotenuse is the offset contact segment. One leg runs
      vertically down from `P_hi'` to the bed, and the other runs along the bed back to `P_lo'`'s foot. At 45°,
      the base equals the height, so the wedge is inherently stable and needs no separate footprint rule.
-   - **Level overhang:** the top leg is the contact segment. The vertical leg sits `SupportGap` off the
-     wall that holds up the ledge, and the free hypotenuse falls at `SupportWedgeAngle` to the bed.
-     If the hypotenuse would land beyond the ledge's far end, the wedge is clipped there and gets a
-     vertical outer leg (trapezoid).
+   - **Level overhang:** the top edge is the contact segment, with a vertical leg at the wall end (the
+     clearance cut in step 9 holds it `SupportGap` off the wall). At the free end, the foot flares outward
+     past the ledge's end by `h × cot(SupportWedgeAngle)`, so the free edge is a hypotenuse at
+     `SupportWedgeAngle`. The result is a trapezoid with full contact along the top and base ≥ height
+     at 45°. The FreeCAD side tells `wedge_math` which end is free (`flare_end`).
    - **Footprint check:** the base on the bed must be ≥ `h_max × cot(SupportWedgeAngle)` or the wedge
      gets flagged. At 45° that's base ≥ height.
 7. **Chamfered contact edge** (image 4: "heavily chamfered"). Along the contact edge, bevel both faces of
@@ -144,12 +148,15 @@ For each qualifying overhang face **F** (planar in v1):
    so there's little contact area and a clean break. Built as a loft or a cut prism along the edge,
    not as a `Part.makeChamfer` on picked edges (no topological naming).
 8. **Contact tabs.** Contact length `Lc = |P_hi − P_lo|`.
-   `n_tabs = max(2, floor(Lc / SupportTabPitch) + 1)`, evenly spaced and inset `SupportTabPitch / 2`
-   from both ends. Each tab is a small box. It is `SupportContactLand` across and `SupportGap` along `n`.
-   Its length along the edge is computed so the tab spans exactly `SupportTabLayers` layers in Z:
-   `L_tab = max(LineWidth, SupportTabLayers × LayerHeight / sin(θ))`, where θ is the contact edge's slope
-   from horizontal. For a 45° edge and 1 layer at 0.2 mm, that's 0.28 mm, and 0.57 mm for 2 layers.
-   A level contact (θ ≈ 0) falls back to `LineWidth`. The tab sits on the land, and its top face is
+   `n_tabs = max(2, ceil(Lc / SupportTabPitch))`, evenly spaced at `Lc / n_tabs` (≤ pitch), with half a
+   space in from each end. Each tab is a small box. It is `SupportContactLand` across and `SupportGap`
+   along `n`. Its length along the edge is computed so its contact face spans exactly
+   `SupportTabLayers` layers in Z:
+   `L_tab = min(SupportTabLayers × LayerHeight / sin(θ), SupportTabLayers × LineWidth)`, where θ is the
+   contact edge's slope from horizontal. For a 45° edge at 0.2 mm layers, that's 0.28 mm for 1 layer and
+   0.57 mm for 2 layers. The cap keeps near-level contacts from growing long tabs (at 2° the uncapped
+   formula gives 5.7 mm). A level contact (θ < 1°) gets the cap. *(Corrected: rev 4's
+   `max(LineWidth, …)` would have forced every 1-layer 45° tab up to 0.42 mm, i.e. 1.5 layers.)* The tab sits on the land, and its top face is
    **coplanar with the overhang face**: touching, not overlapping. Tabs are fused into the support solid,
    never into the part.
 9. **Clearance clip.** Extrude the profile ±t/2 along `w`, apply the chamfer, fuse all wedges, then cut
@@ -210,7 +217,7 @@ CircleInlayRouterJig custom 3MF writer.
 2. `python3 scripts/audit_parametric.py`: clean.
 3. **Gap by distance, not volume:** `part.distToShape(wedges_without_tabs)[0] ≥ SupportGap − 0.005`.
    **Tabs:** each tab's `distToShape(part) ≤ 0.001` (touching), and
-   `tab.common(part).Volume ≤ 1e-6` (not overlapping). Each tab's Z extent = `SupportTabLayers × LayerHeight` ± 0.01.
+   `tab.common(part).Volume ≤ 1e-6` (not overlapping). On a sloped contact, each tab's **contact face** Z extent = `SupportTabLayers × LayerHeight` ± 0.01.
 4. Per wedge: the gap normal to the face at the contact midpoint = `SupportGap` ± 0.005, `t` matches
    step 5, the land width = `SupportContactLand`, and the footprint passes the step 6 check.
 5. `Supports.Shape.isValid()`, closed solids, and `Supports` ZMin == part ZMin.
