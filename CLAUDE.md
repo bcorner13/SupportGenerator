@@ -62,7 +62,7 @@ There are two objects, and they are never fused:
 | File | Role | Depends on | Status |
 |---|---|---|---|
 | `Params.FCStd` | VarSet: generator + fixture Params | — | ✅ 13 Support + 7 Fixture vars (`macros/00-bootstrap_params.FCMacro`) |
-| `SupportGenerator.FCStd` | Fixture Body + `Supports` | `Params.FCStd`, the SupportGenerator workbench | ✅ Fixture built (`macros/01-build_fixture.FCMacro`); `Supports` ⏳ Phase 4 |
+| `SupportGenerator.FCStd` | Fixture Body + `Supports` | `Params.FCStd`, the SupportGenerator workbench | ✅ Fixture (`macros/01-build_fixture.FCMacro`) + `Supports` (`macros/02-add_supports.FCMacro`): 6 wedges, 21 tabs, reload verified |
 
 Cross-document bindings need **both** files saved on disk first (FreeCAD 1.1.4: "Linked document not
 saved" / "Owner document not saved"). Save a new document once, with approval, before binding.
@@ -149,6 +149,6 @@ No project-scoped memories yet — this is a fresh project. Relevant global ones
 
 ## Print profile
 
-**No successful test print yet — profile TBD.** Fill in after Phase 4. At minimum record: layer
+**No successful test print yet — profile TBD.** Fill in after the Phase 5 test print. At minimum record: layer
 height, line width (the gap derives from it), the gap ratio used, slicer supports off, and how
 the supports broke away.

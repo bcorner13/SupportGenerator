@@ -1,0 +1,40 @@
+# -*- coding: utf-8 -*-
+"""SupportGenerator 02: add (or re-bind) the Supports object for the Fixture Body.
+
+Same path as the workbench's Add Supports command (supportgen.feature.make_supports),
+scripted so it's reviewable and re-runnable. Idempotent: re-running finds the existing
+Supports for Fixture and re-binds its properties. Every input binds to
+<<Params>>#VarSet.Support*. Requires Params.FCStd and SupportGenerator.FCStd open and
+saved once (cross-document bindings). Does NOT save.
+"""
+import importlib
+import os
+import sys
+
+import FreeCAD as App
+
+PROJECT = "/Users/bradleycorner/Documents/3dPrinting/Commercial License/SupportGenerator"
+
+sys.path.insert(0, os.path.join(PROJECT, "scripts"))
+import test_env_guard  # noqa: E402
+importlib.reload(test_env_guard)
+App.Console.PrintMessage(test_env_guard.require_laptop(need_freecad=True) + "\n")
+
+from supportgen import feature, params  # noqa: E402  (installed workbench, Mod/ is on sys.path)
+
+vs = params.find_params_varset()
+if vs is None:
+    raise RuntimeError("Params document not open: run SG-00-bootstrap_params first")
+doc = App.getDocument("SupportGenerator")
+fixture = doc.getObject("Fixture")
+if fixture is None:
+    raise RuntimeError("Fixture Body missing: run SG-01-build_fixture first")
+
+report = params.ensure_params(vs)
+if report["conflicts"]:
+    raise RuntimeError(f"Params type conflicts: {report['conflicts']}")
+sup = feature.make_supports(fixture, vs)
+
+App.Console.PrintMessage(
+    f"SG-02: {sup.Label} ({sup.Name}): {sup.WedgeCount} wedges, "
+    f"{len(sup.Warnings)} warnings. {doc.Label} NOT saved.\n")

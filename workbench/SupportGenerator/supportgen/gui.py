@@ -52,14 +52,43 @@ class _AddSupports:
     def GetResources(self):
         return {"Pixmap": _ICON,
                 "MenuText": "Add Supports",
-                "ToolTip": "Generate break-away wedge supports for the selected Body "
-                           "(not built yet: plan.md Phase 4)"}
+                "ToolTip": "Generate break-away wedge supports for the selected Body, bound "
+                           "to the open Params VarSet (both files must be saved once; "
+                           "nothing is saved)"}
+
+    @staticmethod
+    def _selected_source():
+        sel = Gui.Selection.getSelection()
+        if len(sel) != 1:
+            return None
+        obj = sel[0]
+        shape = getattr(obj, "Shape", None)
+        return obj if shape is not None and not shape.isNull() and shape.Solids else None
 
     def IsActive(self):
-        return False  # Phase 4
+        from supportgen import params
+        return self._selected_source() is not None and params.find_params_varset() is not None
 
     def Activated(self):
-        pass
+        from supportgen import feature, params
+        source = self._selected_source()
+        vs = params.find_params_varset()
+        doc = source.Document
+        doc.openTransaction("Add Supports")
+        try:
+            rep = params.ensure_params(vs)
+            if rep["added"]:
+                vs.Document.recompute()
+                _msg(f"added Params {', '.join(rep['added'])} ({vs.Document.Label} not saved)")
+            for name, have, want in rep["conflicts"]:
+                raise RuntimeError(f"{name} exists as {have}, expected {want}; fix Params first")
+            obj = feature.make_supports(source, vs)
+        except Exception as e:
+            doc.abortTransaction()
+            App.Console.PrintError(f"SupportGenerator: {e}\n")
+            return
+        doc.commitTransaction()
+        _msg(f"{obj.Label}: {obj.WedgeCount} wedges; {doc.Label} not saved")
 
 
 class _ExportPartAndSupports:

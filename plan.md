@@ -206,7 +206,7 @@ message. The same applies to Phase 4: *Add Supports* must refuse an unsaved targ
 In the video, the part and supports were exported as STEP, imported into the slicer, and run through
 "Split to objects". Here, the *Export* command writes the Body and `Supports` as **two objects in one
 3MF** (`3mf/`), plus STLs (`stl/`). Slicer: slicer supports off.
-**Verify in Phase 4:** does Creality Print import it as two objects? If it merges them, adapt the
+**Verify in Phase 5:** does Creality Print import it as two objects? If it merges them, adapt the
 CircleInlayRouterJig custom 3MF writer.
 
 ---
@@ -282,6 +282,42 @@ Banner: `TEST ENVIRONMENT VERIFIED: NewMacBook.local uuid D8B58553 FreeCAD 1.1.4
   (n_z −0.707, 424 mm²). Flex: `FixtureLedgeLen` +5 → X −27.5..27.5, still centered and fully
   constrained, then restored. `validate_document`: 12/12 valid. Audit clean on the saved file.
 - Screenshots: `images/fixture_isometric.png`, `images/fixture_front.png`.
+
+---
+
+## PHASE 4 RESULTS (2026-10-24)
+
+Banner on every FreeCAD check: `TEST ENVIRONMENT VERIFIED: NewMacBook.local uuid D8B58553 FreeCAD 1.1.4 GUI`.
+`supportgen/feature.py` (`SupportFeature`, `ViewProviderSupport`, `build_supports`,
+`make_supports`); *Add Supports* enabled; `macros/02-add_supports.FCMacro` adds `Fixture_Supports`.
+
+As built (details the sizing section left open):
+- Level face: `d` = the face's longer bounding-box side (axis-aligned in v1). Its free end, for
+  `flare_end`, is found by probing `2 × SupportGap` past each end on the support side: part
+  material there means a wall.
+- Off-centre wedges: a dry run caught tabs and chamfer cutters shifted by twice the wedge offset
+  (the contact points already carry it). Fixed before anything was saved.
+- Tabs reach 0.01 mm back into the land so they fuse; a tab that lands off a kept wedge or overlaps
+  the part is dropped with a warning. Results go in the read-only `WedgeCount` and `Warnings`.
+
+Validation on the fixture (defaults): 6 wedges (3 under the slope, 3 under the ledge), 21 tabs.
+1. Unit tests pass. 2. Audit clean on the saved file.
+3. Plates `distToShape` = 0.250; all tabs touching (0) with zero overlap; sloped tab contact face
+   Z span 0.200 (1 layer); level tabs are the 0.42 mm cap.
+4. Gap at every wedge midpoint 0.250; land 0.848 at 0.02 mm back (0.84 nominal), 1.42 at 1.5 mm,
+   full 2.0 at 4 mm.
+5. Valid closed solids, ZMin = part ZMin. Warnings: only the 3 known slope-trapezoid footprint ones.
+6. Flex, each restored afterwards (restored volume identical, 4202.425 mm³):
+   OverhangAngle 50 → slope drops out, 3 wedges; Gap 0.3 → 0.300 everywhere; TabLayers 2 → 0.400
+   contact; TabPitch 5 → 30 tabs; ChamferDepth 2 → 1.71 at 1.5 mm; FixtureHeight 24 → supports
+   grow to Z 23.82; FixtureSlopeAngle 40 → follows. `validate_document` 13/13.
+7. After a FreeCAD restart and reopen: proxies `supportgen.feature.SupportFeature` /
+   `ViewProviderSupport` loaded from `Mod/SupportGenerator`, 13 bindings intact, forced recompute
+   gives the same 4202.425 mm³. *Add Supports* is active with Fixture selected, inactive without.
+   (Commands register on the first activation of the workbench.)
+
+Note: another project's open `Params` document would capture `<<Params>>` by label. Close other
+projects before opening this one (it happened on the reopen: UnderDeskCableTray was open).
 
 ---
 
