@@ -131,9 +131,9 @@ No project-scoped memories yet — this is a fresh project. Relevant global ones
   `~/Library/Application Support/FreeCAD/v1-1/Mod/SupportGenerator`. Changes to it need a FreeCAD
   restart. Project `macros/` (`SG-` prefix in FreeCAD's Macro dir) only build *this project's*
   Params and fixture.
-- `InitGui.py` is a **stub loader** that execs `_workbench.py` with an explicit namespace. Don't put
+- `InitGui.py` is a **stub loader** that execs `supportgen/gui.py` with an explicit namespace. Don't put
   workbench code in `InitGui.py` (see global memory `feedback_freecad_initgui_exec.md`).
-- **Frozen API:** the proxy path `support_feature.SupportFeature` is saved inside every model file
+- **Frozen API:** the proxy path `supportgen.feature.SupportFeature` is saved inside every model file
   that uses supports. Renaming the module or class breaks those files. Add a compatibility alias
   rather than renaming.
 - **Settings are per project:** *Ensure Support Params* adds `Support*` variables to whichever

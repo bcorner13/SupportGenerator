@@ -27,11 +27,12 @@ symlinked to `~/Library/Application Support/FreeCAD/v1-1/Mod/SupportGenerator`.
 
 | File | Role |
 |---|---|
-| `InitGui.py` | **Stub loader** only: execs `_workbench.py` in an explicit namespace. FreeCAD's `RunInitGuiPy` loses module globals otherwise (known issue from the FreeCADMCPAgent addon) |
-| `_workbench.py` | `SupportGeneratorWorkbench` + command registration, toolbar and menu |
-| `support_feature.py` | `SupportFeature` (Part::FeaturePython proxy) + `ViewProviderSupport`. Builds the geometry in `execute()` |
-| `wedge_math.py` | **Pure-Python sizing math, no FreeCAD imports** (see *Wedge sizing*). Unit-tested with plain `python3` |
-| `params_schema.py` | The one table of Support* Param names, types, groups and tool defaults |
+| `InitGui.py` | **Stub loader** only: execs `supportgen/gui.py` in an explicit namespace. FreeCAD's `RunInitGuiPy` loses module globals otherwise (known issue from the FreeCADMCPAgent addon) |
+| `supportgen/__init__.py` | Package marker. **All code lives in the `supportgen` package** (see Phase 0 result B) |
+| `supportgen/gui.py` | `SupportGeneratorWorkbench` + command registration, toolbar and menu |
+| `supportgen/feature.py` | `SupportFeature` (Part::FeaturePython proxy) + `ViewProviderSupport`. Builds the geometry in `execute()`. **Saved class path: `supportgen.feature.SupportFeature`** |
+| `supportgen/wedge_math.py` | **Pure-Python sizing math, no FreeCAD imports** (see *Wedge sizing*). Unit-tested with plain `python3` |
+| `supportgen/params_schema.py` | The one table of Support* Param names, types, groups and tool defaults |
 | `tests/test_wedge_math.py` | Unit tests for the sizing math (run outside FreeCAD) |
 | `Resources/icons/*.svg` | Command icons |
 
@@ -50,7 +51,7 @@ symlinked to `~/Library/Application Support/FreeCAD/v1-1/Mod/SupportGenerator`.
 **Why a workbench:** the module is guaranteed to be on `sys.path` (FreeCAD adds every `Mod/` dir).
 That resolves rev 1's biggest risk, a FeaturePython proxy failing to reload on reopen. It also
 gives the tool real commands and icons and makes it usable from any project, not just this one.
-**Cost:** the proxy class path (`support_feature.SupportFeature`) is saved inside every `.FCStd`
+**Cost:** the proxy class path (`supportgen.feature.SupportFeature`) is saved inside every `.FCStd`
 that uses it, so module and class names are a frozen API from the first saved file.
 
 **Where the settings live:** each project that uses the tool keeps its own `Support*` values in its
@@ -113,7 +114,7 @@ If the test print shows the top and side gaps need different values, split it in
 ## WEDGE SIZING (the computation) *(proposal)*
 
 All of this lives in `wedge_math.py` as pure functions on plain tuples and floats, so it can be unit-tested
-without FreeCAD. `support_feature.py` extracts the numbers from the B-rep, calls these functions,
+without FreeCAD. `supportgen/feature.py` extracts the numbers from the B-rep, calls these functions,
 and turns the results back into solids.
 
 For each qualifying overhang face **F** (planar in v1):
@@ -229,6 +230,35 @@ CircleInlayRouterJig custom 3MF writer.
 
 ---
 
+## PHASE 0 RESULTS (2026-10-23)
+
+Every result was obtained in the GUI FreeCAD the MCP bridge drives, with the banner
+`TEST ENVIRONMENT VERIFIED: NewMacBook.local uuid D8B58553 FreeCAD 1.1.4 GUI`.
+Environment (Step 4): MCP connected (xmlrpc, 1.1.4), GUI available, `temp_work` document created.
+
+**A: clearance cut + tab contact** (in-memory fixture: 10 mm column, 25 mm level ledge at z 17, 45°
+slope from z 5 to 20, 20 mm deep; wedges sized by `wedge_math`):
+- `part.makeOffsetShape(0.25, 1e-3)`: valid, 22 ms.
+- All 6 wedges (3 per overhang) after `cut(offset)`: valid, 1 solid each, ZMin 0 (on bed),
+  `distToShape(part)` = **0.25** exactly. The level wedges lost exactly the 0.25 mm strip at the
+  column wall (8.375 mm³ = 0.25 × 16.75 × 2), as designed.
+- One 1-layer tab on the 45° wedge: valid, `distToShape` = **0** (touching), `common().Volume` =
+  **0** (no overlap), contact-face Z span = **0.200 mm** (exactly 1 layer).
+- **Finding:** the fixture's slope starts 5 mm above the bed, so its wedge is a right trapezoid with
+  base 15 < height 19.8, and `footprint_ok` warns. The rule was written for triangles. A trapezoid
+  standing next to a wall is stable in `s`, and the thin direction is `w` either way. Kept as a
+  **warning only** (no wedge change); revisit after the test print.
+
+**B: proxy reload path:** all 16 installed `Mod/<addon>` dirs are on `sys.path`, and addons import
+by bare module name. So a `Mod/SupportGenerator/` package will import. **Collision found:**
+FreeCADMCPAgent already ships a bare `_workbench.py`, and other addons expose generic names
+(`commands`, `Qt`). Because the proxy path is frozen into model files, all code moved into a
+uniquely named package, **`supportgen`**, before anything was saved. The actual restart-and-reopen test
+is validation step 7, run in Phase 4 once the workbench is installed. (The Macro dir is also on
+`sys.path`, which answers rev 1's open question, but a workbench is no longer conditional on it.)
+
+---
+
 ## PHASES
 
 0. **Environment + spikes:** MCP connection, GUI mode, `temp_work` document (Step 4). Spike
@@ -236,7 +266,7 @@ CircleInlayRouterJig custom 3MF writer.
 1. `wedge_math.py` + tests, test-first. No FreeCAD needed.
 2. `00-bootstrap_params` → `Params.FCStd`; `01-build_fixture` → fixture Body. Save only with approval.
 3. Workbench skeleton (stub loader, commands, schema) → symlink into `Mod/` → restart FreeCAD.
-4. `support_feature.py`, then *Add Supports* on the fixture; validation 1–7.
+4. `supportgen/feature.py`, then *Add Supports* on the fixture; validation 1–7.
 5. *Export*: two-object 3MF → Creality check → test print → tune → record profile.
 6. (Later) Curved faces, support-on-part, mesh input, and an optional task panel to preview/override per face.
 

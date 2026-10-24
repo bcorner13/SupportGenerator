@@ -23,7 +23,7 @@ REPO_ROOT = os.path.dirname(os.path.dirname(WB_DIR))
 sys.path.insert(0, WB_DIR)
 sys.path.insert(0, os.path.join(REPO_ROOT, "scripts"))
 
-import wedge_math as wm  # noqa: E402
+from supportgen import wedge_math as wm  # noqa: E402
 
 R = math.sqrt(0.5)
 N45 = (R, -R)  # outward normal of the 45-degree reference face, in (s, z)

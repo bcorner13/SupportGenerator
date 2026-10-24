@@ -1,7 +1,7 @@
 """Wedge sizing math for SupportGenerator. Pure Python: NO FreeCAD imports.
 
 Keep it that way so it stays unit-testable with plain python3
-(tests/test_wedge_math.py). support_feature.py pulls the numbers out of the B-rep,
+(tests/test_wedge_math.py); lives in the supportgen package. support_feature.py pulls the numbers out of the B-rep,
 calls these functions, and turns the results back into solids.
 
 2D convention: a wedge lives in a vertical plane with coordinates (s, z), where s
