@@ -1,6 +1,6 @@
-# Plan — SupportGenerator (rev 4, AWAITING APPROVAL)
+# Plan — SupportGenerator (rev 4, APPROVED 2026-10-23)
 
-> Execution is FORBIDDEN until Bradley approves this plan (PROJECT_BOOTSTRAP Step 3).
+> Approved by Bradley 2026-10-23. Saves still need per-save approval (PROJECT_BOOTSTRAP Step 6).
 >
 > **Source:** Claude could not watch the video (YouTube serves no transcript to a fetch). Technique
 > details come from **Bradley's summary** and **three video screenshots** (2026-10-23).
