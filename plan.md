@@ -538,6 +538,12 @@ re-centering has nothing to move. `verify_3mf` now also checks the centered orig
 Independent read-back: local centers (0, 0, 0); items part (0, 0, 10), supports (8.0916, 0, 9.9116); rebuilt
 volumes 7750 / 6586.393 mm³, bounding boxes equal the model, distance 0, overlap 1e-6 mm³ (mesh-rebuild noise).
 
+**Correction:** Bradley opened the file the same way for print 1, so Open vs Import is *not* the cause. The rev 4
+file had the same identity-transform layout and the same ~8.3 mm bounding-box offset, but didn't shift, so
+the cause of the new shift is **unknown**. Candidates: the rev 5 support shape, or a Creality update or setting change.
+The centered layout doesn't depend on it: **with the new file the supports line up in Creality (Bradley,
+2026-10-27)**, and print 2 started.
+
 **Open (Bradley):** print 2 in SUNLU PLA+ 2.0 (or Hyper PLA) at 0.20 mm. First check the one-layer gap in the Creality preview, then record the
 ledge finish and how the deck releases (validation 15).
 
