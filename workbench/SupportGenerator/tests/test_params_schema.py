@@ -55,6 +55,15 @@ class TestSchema(unittest.TestCase):
         self.assertEqual(d["SupportPlateThick"], 2.0)
         self.assertEqual(S.BY_NAME["SupportContactLand"].expression, "SupportLineWidth * 2")
 
+    def test_plan_rev5_deck_defaults(self):
+        d = {p.name: p.default for p in S.PARAMS}
+        self.assertEqual(d["SupportDeckAngle"], 60.0)
+        self.assertEqual(d["SupportDeckPitch"], 5.0)
+        self.assertEqual(S.BY_NAME["SupportDeckThick"].expression, "SupportLayerHeight * 2")
+        self.assertEqual(S.BY_NAME["SupportDeckAngle"].type, "App::PropertyAngle")
+        for prop in ("DeckAngle", "DeckThick", "DeckPitch"):
+            self.assertEqual(S.FEATURE_BINDINGS[prop], "Support" + prop)
+
     def test_feature_bindings_cover_every_param_once(self):
         self.assertEqual(sorted(S.FEATURE_BINDINGS.values()), sorted(S.BY_NAME))
 

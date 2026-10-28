@@ -48,7 +48,7 @@ There are two objects, and they are never fused:
 
 - **Part**: any PartDesign Body (in this project, the `Fixture` Body: a Γ-shaped cantilever whose ledge
   underside is the overhang under test). It sits on the bed at its own ZMin.
-- **Supports** (`Part::FeaturePython`): its `Source` links to the Part. It holds 45° right-triangle wedge plates, each with a heavily chamfered contact edge
+- **Supports** (`Part::FeaturePython`): its `Source` links to the Part. Faces leaning ≥ `SupportDeckAngle` (60°) from vertical get an **interface deck** (rev 5): a thin solid roof `SupportGap` below the face on plates at `SupportDeckPitch`, with the tabs on the deck. Steeper faces get 45° right-triangle wedge plates, each with a heavily chamfered contact edge
   (narrow land) running one `SupportGap` below the overhang face, standing on the same bed plane and
   `SupportGap` clear of every part surface. Small **rectangular tabs** (1–2 layers tall, 5–10 mm apart)
   on the land bridge the gap and **touch** the part (zero gap, zero overlap). They're the only contact. It's a **separate object** so the slicer treats it as
@@ -61,8 +61,8 @@ There are two objects, and they are never fused:
 
 | File | Role | Depends on | Status |
 |---|---|---|---|
-| `Params.FCStd` | VarSet: generator + fixture Params | — | ✅ 13 Support + 7 Fixture vars (`macros/00-bootstrap_params.FCMacro`) |
-| `SupportGenerator.FCStd` | Fixture Body + `Supports` | `Params.FCStd`, the SupportGenerator workbench | ✅ Fixture (`macros/01-build_fixture.FCMacro`) + `Supports` (`macros/02-add_supports.FCMacro`): 6 wedges, 21 tabs, reload verified |
+| `Params.FCStd` | VarSet: generator + fixture Params | — | ✅ 16 Support + 7 Fixture vars (`macros/00-bootstrap_params.FCMacro`; the 3 rev 5 deck vars were added by `02-add_supports`) |
+| `SupportGenerator.FCStd` | Fixture Body + `Supports` | `Params.FCStd`, the SupportGenerator workbench | ✅ Fixture (`macros/01-build_fixture.FCMacro`) + `Supports` (`macros/02-add_supports.FCMacro`): rev 5: 8 wedges + 1 interface deck under the ledge, 29 tabs (plan.md Phase 6b) |
 
 Cross-document bindings need **both** files saved on disk first (FreeCAD 1.1.4: "Linked document not
 saved" / "Owner document not saved"). Save a new document once, with approval, before binding.
@@ -76,7 +76,8 @@ No broken files.
 See `plan.md` → PARAMETERS. Groups:
 - **Support** (source of truth: `workbench/SupportGenerator/supportgen/params_schema.py`): `SupportOverhangAngle`, `SupportLineWidth`, `SupportLayerHeight`, `SupportGap`, `SupportWedgeAngle`,
   `SupportPlateThick`, `SupportMaxSlenderness`, `SupportContactLand` (derived, 2 × LineWidth),
-  `SupportChamferDepth`, `SupportWedgePitch`, `SupportTabLayers`, `SupportTabPitch`, `SupportMinOverhangArea`.
+  `SupportChamferDepth`, `SupportWedgePitch`, `SupportTabLayers`, `SupportTabPitch`, `SupportMinOverhangArea`,
+  and the rev 5 deck vars `SupportDeckAngle`, `SupportDeckThick` (derived, 2 × LayerHeight), `SupportDeckPitch`.
 - **Fixture:** `FixtureColumnW`, `FixtureDepth`, `FixtureHeight`, `FixtureLedgeLen`, `FixtureLedgeThick`, `FixtureSlopeAngle`, `FixtureSlopeRun`.
 
 Run `python3 scripts/audit_parametric.py` to check bindings.

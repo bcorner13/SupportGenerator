@@ -463,6 +463,55 @@ Tests: 9 new tests in `TestDeck`. All 44 `test_wedge_math` tests and all 8 `test
 put a deck on a level face (it acts like 85°). `deck_needed` now returns False above 90°, so "> 90° =
 decks off" holds.
 
+### PHASE 6b RESULTS (2026-10-27)
+
+Banner on every FreeCAD check: `TEST ENVIRONMENT VERIFIED: NewMacBook.local uuid D8B58553 FreeCAD 1.1.4 GUI`.
+
+**Code:**
+- `params_schema`: 3 deck Params + bindings (16 total), with 1 new schema test.
+- `feature.py`:
+  - `DeckSpec`, `_deck_slab`, and a deck branch in `build_supports`;
+  - tabs stand on the deck top (`tab_a3` = contact lifted back to `SupportGap`);
+  - a `DeckCount` result property;
+  - `WedgeCount` now counts planned plates, not solids, because a deck fuses its plates into one solid;
+  - `make_supports` adds missing properties to an existing `Supports`.
+
+**Upgrade trap, found and fixed:** opening the rev 4 file loaded the rev 5 code (the `Mod/` symlink, on the first
+import after the restart). `onDocumentRestored` added the deck properties **unbound at 0**. Any recompute would then
+have read a deck angle of 0 (deck every face) and a thickness of 0, raising a ValueError and giving empty supports. A
+property added to an old file now starts at `DECKS_OFF` (95°), so the file keeps rev 4 behaviour until *Add Supports*
+binds the Params. Nothing was recomputed before SG-02 bound them.
+
+**Dry run** (the new code loaded in memory as a separate package; the document untouched):
+- **Rev 4 path regression:** `deck=None` gives 4202.425 mm³ and 6 wedges, identical to Phase 4.
+- **Validation 9:** the unit tests pass (Phase 6a).
+
+**Live** (`SG-02` added the 3 Params to the VarSet, with `SupportDeckThick` = `SupportLayerHeight * 2`, and bound all 16):
+
+| Check | Result |
+|---|---|
+| 3–5 | Valid closed solids, ZMin 0; 8 wedges (3 slope + 5 deck), 1 deck, 29 tabs. Plates + deck `distToShape` 0.250; tabs touching (0) with zero overlap; 6586.393 mm³. Only the 3 known slope-footprint warnings |
+| 10 | The deck carries the support at exactly `SupportGap` below the ledge at **1911/1911** grid points (100 %). Deck top 495 mm² of the 500 mm² face; the missing 5 mm² is the 0.25 mm strip at the column wall. Deck 16.35–16.75, i.e. 0.40 thick |
+| 11 | Plates at Y −8.75 / −4.375 / 0 / +4.375 / +8.75. Largest clear span **2.375 mm** (≤ pitch − plate = 3). No chamfer under the deck. Deck + plates are one solid standing on the bed |
+| 12 | Slope wedges **identical** to rev 4: 3 × 333.9187 mm³, 9 slope tabs both ways |
+| 13 | See the flex table below |
+| Printed gap (inferred from the layer grid) | Deck top 16.75 prints to 16.8, the ledge starts at 17.0, so the printed gap is **0.2 mm = 1 layer** |
+
+**Flex (validation 13).** All solids valid, ZMin 0. Each value was restored afterwards, and the restored volume is
+identical (6586.393 mm³).
+
+| Change | Result |
+|---|---|
+| `DeckAngle` 95 | 0 decks, 6 wedges, 4202.425 mm³ (the rev 4 model exactly) |
+| `DeckAngle` 40 | The slope gets a deck too: 2 decks, 10 wedges. The probe at X −17 reads 11.646 top / 11.081 bottom, which is 0.25 and 0.65 normal to the 45° face |
+| `DeckThick` 0.6 | Deck 16.15–16.75 |
+| `DeckPitch` 3 | 7 deck plates (10 wedges) |
+| `Gap` 0.3 | Deck 16.30–16.70 |
+
+Screenshots: `images/supports_rev5_isometric.png`, `supports_rev5_front.png`, `supports_rev5_right.png`.
+`validate_document`: 13/13 valid. Both files saved with Bradley's approval (2026-10-27), and the audit is clean on
+the saved files. **Pending:** validation 14 (restart and reopen).
+
 ---
 
 ## PHASES

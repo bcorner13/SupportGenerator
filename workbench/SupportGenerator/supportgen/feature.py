@@ -4,13 +4,14 @@ FROZEN API: the proxy class paths `supportgen.feature.SupportFeature` and
 `supportgen.feature.ViewProviderSupport` are saved inside every model file that has
 supports. Don't rename the module or the classes; add a compatibility alias instead.
 
-Geometry recipe: plan.md rev 4, WEDGE SIZING. The numbers come from wedge_math (pure
+Geometry recipe: plan.md rev 4, WEDGE SIZING, and rev 5, INTERFACE DECK. The numbers come from wedge_math (pure
 Python); this module only reads the B-rep, maps each wedge into its own (s, z) plane,
 and turns the plans back into solids. Every numeric input is a feature property bound
 to <<Params>>#VarSet.Support* (see params_schema.FEATURE_BINDINGS); the only literals
 here are geometric tolerances, commented where used.
 """
 import os
+from collections import namedtuple
 
 import FreeCAD as App
 import Part
@@ -27,6 +28,10 @@ OFFSET_TOL = 1e-3  # makeOffsetShape tolerance, mm (Phase 0 spike A)
 OVERLAP = 0.01    # tabs reach this far into the land so they fuse solidly, mm
 CUT_EXT = 0.05    # chamfer cutters overshoot the plate by this much, mm
 
+# Rev 5 interface deck inputs: SupportDeckAngle (deg), SupportDeckThick, SupportDeckPitch (mm)
+DeckSpec = namedtuple("DeckSpec", "angle thick pitch")
+DECKS_OFF = 95.0  # deg; any deck angle > 90 means no decks (wedge_math.deck_needed)
+
 _ICON = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
                      "Resources", "icons", "SupportGenerator.svg")
 
@@ -38,14 +43,15 @@ def _val(x):
 
 
 def read_inputs(fp):
-    """Feature properties -> (WedgeParams, overhang_angle, wedge_pitch, min_area)."""
+    """Feature properties -> (WedgeParams, overhang_angle, wedge_pitch, min_area, DeckSpec)."""
     g = {prop: _val(getattr(fp, prop)) for prop in S.FEATURE_BINDINGS}
     wp = wm.WedgeParams(
         gap=g["Gap"], wedge_angle=g["WedgeAngle"], plate_thick=g["PlateThick"],
         max_slenderness=g["MaxSlenderness"], contact_land=g["ContactLand"],
         chamfer_depth=g["ChamferDepth"], tab_layers=int(g["TabLayers"]),
         tab_pitch=g["TabPitch"], layer_height=g["LayerHeight"], line_width=g["LineWidth"])
-    return wp, g["OverhangAngle"], g["WedgePitch"], g["MinArea"]
+    deck = DeckSpec(g["DeckAngle"], g["DeckThick"], g["DeckPitch"])
+    return wp, g["OverhangAngle"], g["WedgePitch"], g["MinArea"], deck
 
 
 # --- face analysis -----------------------------------------------------------------
@@ -151,22 +157,39 @@ def _fuse(shapes):
     return shapes[0].multiFuse(shapes[1:]) if len(shapes) > 1 else shapes[0]
 
 
-def build_supports(part, wp, overhang_angle, wedge_pitch, min_area):
-    """Build the supports for `part`.
+def _deck_slab(face, n, gap, thick):
+    """The face, moved `gap` out along its normal and extruded `thick` further (rev 5)."""
+    slab = face.copy()
+    slab.translate(n * gap)
+    return slab.extrude(n * thick)
 
-    Returns a dict: shape (compound of solids), plates (after the clearance cut, no tabs),
-    tabs, wedges (per-wedge records for validation), warnings."""
+
+def build_supports(part, wp, overhang_angle, wedge_pitch, min_area, deck=None):
+    """Build the supports for `part`. deck: DeckSpec, or None for rev 4 (no decks).
+
+    Returns a dict: shape (compound of solids), plates (deck + plates after the clearance
+    cut, no tabs), tabs, wedges (per-wedge records for validation), decks
+    ([{tag, face, slab}]), warnings."""
     bed_z = part.BoundBox.ZMin
     faces, warnings = overhang_faces(part, overhang_angle, min_area, bed_z)
-    plates, wedges = [], []
+    plates, wedges, decks = [], [], []
     for fi, face, n in faces:
+        is_deck = deck is not None and wm.deck_needed((n.x, n.y, n.z), deck.angle)
+        if is_deck:
+            decks.append({"tag": f"Face{fi + 1} deck", "face": fi + 1,
+                          "slab": _deck_slab(face, n, wp.gap, deck.thick)})
+            plates.append(decks[-1]["slab"])
+            contact_offset = wm.deck_contact_offset(wp.gap, deck.thick, OVERLAP)
+            pitch = deck.pitch
+        else:
+            contact_offset, pitch = None, wedge_pitch
         d, w = face_frame(face, n)
         n_dz = (n.dot(d), n.z)
         u3 = (d * n_dz[0] + Z * n_dz[1]).normalize()
         ws = [v.Point.dot(w) for v in face.Vertexes]
         wc = (min(ws) + max(ws)) / 2
         level = V(n.x, n.y, 0).Length < abs(n.z) * 1e-2  # within ~0.6 deg of level
-        for off in wm.wedge_offsets(max(ws) - min(ws), wp.plate_thick, wp.gap, wedge_pitch):
+        for off in wm.wedge_offsets(max(ws) - min(ws), wp.plate_thick, wp.gap, pitch):
             c = wc + off
             sec = _section_points(face, w, c)
             if sec is None:
@@ -179,7 +202,8 @@ def build_supports(part, wp, overhang_angle, wedge_pitch, min_area):
                          "hi": _wall_at(part, q, p, n, 2 * wp.gap)}
                 free = [k for k, wall in walls.items() if not wall]
                 flare = free[0] if len(free) == 1 else None
-            plan = wm.plan_wedge((p.dot(d), p.z), (q.dot(d), q.z), n_dz, bed_z, wp, flare)
+            plan = wm.plan_wedge((p.dot(d), p.z), (q.dot(d), q.z), n_dz, bed_z, wp, flare,
+                                 contact_offset=contact_offset, chamfer=not is_deck)
             tag = f"Face{fi + 1} @ {off:+.2f}"
             if plan.skipped:
                 warnings.append(f"{tag}: skipped, {plan.skipped}")
@@ -194,11 +218,15 @@ def build_supports(part, wp, overhang_angle, wedge_pitch, min_area):
                                            wp.contact_land, plan.chamfer_depth)
                 solid = solid.cut(_fuse(cutters))
             plates.append(solid)
+            # tabs stand on the contact surface SupportGap below the part: the plate land
+            # (rev 4), or the deck top above a deck plate (rev 5)
+            lift = u3 * (plan.contact_offset - wp.gap)
             wedges.append({"tag": tag, "plan": plan, "a3": a3, "b3": b3, "u3": u3,
-                           "w": w, "c": c, "normal": n})
+                           "w": w, "c": c, "normal": n, "deck": is_deck,
+                           "tab_a3": a3 - lift, "tab_b3": b3 - lift})
     if not plates:
         return {"shape": Part.Shape(), "plates": None, "tabs": [], "wedges": wedges,
-                "warnings": warnings or ["no faces need support"]}
+                "decks": decks, "warnings": warnings or ["no faces need support"]}
 
     clearance = part.makeOffsetShape(wp.gap, OFFSET_TOL)
     cut = _fuse(plates).cut(clearance)
@@ -211,14 +239,14 @@ def build_supports(part, wp, overhang_angle, wedge_pitch, min_area):
                             f"{sol.BoundBox.ZMin:.2f}): support-on-part is Phase 6")
     if not kept:
         return {"shape": Part.Shape(), "plates": None, "tabs": [], "wedges": wedges,
-                "warnings": warnings + ["clearance cut removed every wedge"]}
+                "decks": decks, "warnings": warnings + ["clearance cut removed every wedge"]}
     plates_shape = Part.makeCompound(kept)
 
     tabs = []
     for wd in wedges:
-        e3 = V(wd["b3"] - wd["a3"]).normalize()
+        e3 = V(wd["tab_b3"] - wd["tab_a3"]).normalize()
         for pos, length in wd["plan"].tabs:
-            tab = _tab(wd["a3"], e3, wd["u3"], wd["w"], pos, length,
+            tab = _tab(wd["tab_a3"], e3, wd["u3"], wd["w"], pos, length,
                        wp.contact_land, wp.gap)
             if tab.common(plates_shape).Volume <= TOL:
                 warnings.append(f"{wd['tag']}: tab at {pos:.2f} mm not on a kept wedge, dropped")
@@ -229,7 +257,7 @@ def build_supports(part, wp, overhang_angle, wedge_pitch, min_area):
     shape = plates_shape.multiFuse(tabs) if tabs else plates_shape
     shape = Part.makeCompound(shape.Solids)
     return {"shape": shape, "plates": plates_shape, "tabs": tabs, "wedges": wedges,
-            "warnings": warnings}
+            "decks": decks, "warnings": warnings}
 
 
 # --- FeaturePython -----------------------------------------------------------------
@@ -251,9 +279,16 @@ class SupportFeature:
             if prop not in have:
                 p = S.BY_NAME[pname]
                 obj.addProperty(p.type, prop, "Params", f"{p.doc} (bound to {pname})")
+        if "DeckAngle" not in have:
+            # A rev 4 file gains the deck properties unbound (0). Deck angle 0 would deck
+            # every face with thickness 0; keep decks off until Add Supports binds them.
+            obj.DeckAngle = DECKS_OFF
         if "WedgeCount" not in have:
             obj.addProperty("App::PropertyInteger", "WedgeCount", "Result",
                             "Wedges built on the last recompute", 1)  # 1 = read-only
+        if "DeckCount" not in have:
+            obj.addProperty("App::PropertyInteger", "DeckCount", "Result",
+                            "Interface decks built on the last recompute (rev 5)", 1)
         if "Warnings" not in have:
             obj.addProperty("App::PropertyStringList", "Warnings", "Result",
                             "Messages from the last recompute", 1)
@@ -264,23 +299,28 @@ class SupportFeature:
     def execute(self, obj):
         src = obj.Source
         if src is None or src.Shape.isNull() or not src.Shape.Solids:
-            obj.Shape = Part.Shape()
-            obj.WedgeCount = 0
-            obj.Warnings = ["Source is empty or has no solid"]
+            self._empty(obj, "Source is empty or has no solid")
             return
-        wp, angle, pitch, min_area = read_inputs(obj)
+        wp, angle, pitch, min_area, deck = read_inputs(obj)
         try:
-            res = build_supports(src.Shape, wp, angle, pitch, min_area)
-        except ValueError as e:  # e.g. TabLayers < 1
-            obj.Shape = Part.Shape()
-            obj.WedgeCount = 0
-            obj.Warnings = [str(e)]
+            res = build_supports(src.Shape, wp, angle, pitch, min_area, deck)
+        except ValueError as e:  # e.g. TabLayers < 1, DeckThick too thin
+            self._empty(obj, str(e))
             return
         obj.Shape = res["shape"]
-        obj.WedgeCount = len(res["shape"].Solids) if not res["shape"].isNull() else 0
+        # rev 5: count planned plates, not solids (a deck fuses its plates into one solid)
+        obj.WedgeCount = len(res["wedges"]) if not res["shape"].isNull() else 0
+        obj.DeckCount = len(res["decks"]) if not res["shape"].isNull() else 0
         obj.Warnings = res["warnings"]
         for msg in res["warnings"]:
             App.Console.PrintWarning(f"Supports ({obj.Label}): {msg}\n")
+
+    @staticmethod
+    def _empty(obj, message):
+        obj.Shape = Part.Shape()
+        obj.WedgeCount = 0
+        obj.DeckCount = 0
+        obj.Warnings = [message]
 
     def dumps(self):
         return None
@@ -345,6 +385,8 @@ def make_supports(source, varset):
         if App.GuiUp:
             ViewProviderSupport(obj.ViewObject)
             obj.ViewObject.ShapeColor = (0.95, 0.70, 0.24)  # support orange, matches the icon
+    else:
+        SupportFeature._add_properties(obj)  # an older Supports gains new Params properties
     obj.Source = source
     vdoc, vname = varset.Document.Label, varset.Name
     for prop, pname in S.FEATURE_BINDINGS.items():

@@ -42,6 +42,13 @@ PARAMS = [
           "Max spacing between tabs along a wedge (5-10 mm)"),
     Param("SupportMinOverhangArea", "App::PropertyArea", 4.0, None,
           "Ignore overhang faces smaller than this (slicer bridges them)"),
+    # rev 5 interface deck (plan.md REV 5)
+    Param("SupportDeckAngle", "App::PropertyAngle", 60.0, None,
+          "Faces leaning this far or more from vertical get an interface deck (> 90 = off)"),
+    Param("SupportDeckThick", "App::PropertyLength", None, "SupportLayerHeight * 2",
+          "Interface deck thickness, normal to the face"),
+    Param("SupportDeckPitch", "App::PropertyLength", 5.0, None,
+          "Max plate spacing under a deck (sets the deck's bridge span)"),
 ]
 
 BY_NAME = {p.name: p for p in PARAMS}
@@ -62,6 +69,9 @@ FEATURE_BINDINGS = {
     "TabLayers": "SupportTabLayers",
     "TabPitch": "SupportTabPitch",
     "MinArea": "SupportMinOverhangArea",
+    "DeckAngle": "SupportDeckAngle",
+    "DeckThick": "SupportDeckThick",
+    "DeckPitch": "SupportDeckPitch",
 }
 
 
