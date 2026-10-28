@@ -1,4 +1,4 @@
-# Plan — SupportGenerator (rev 5, APPROVED 2026-10-27)
+# Plan — SupportGenerator (rev 5, APPROVED 2026-10-27; Phase 7 proposed 2026-10-28, awaiting approval)
 
 > Rev 4 was approved by Bradley on 2026-10-23, and rev 5 (the interface deck, see *REV 5* below) on
 > 2026-10-27. Saves still need per-save approval (PROJECT_BOOTSTRAP Step 6).
@@ -544,8 +544,93 @@ the cause of the new shift is **unknown**. Candidates: the rev 5 support shape, 
 The centered layout doesn't depend on it: **with the new file the supports line up in Creality (Bradley,
 2026-10-27)**, and print 2 started.
 
-**Open (Bradley):** print 2 in SUNLU PLA+ 2.0 (or Hyper PLA) at 0.20 mm. First check the one-layer gap in the Creality preview, then record the
-ledge finish and how the deck releases (validation 15).
+**Print 2 (2026-10-28): completed, awaiting Bradley's inspection.** The filament was CR PLA **Silk** again
+(Bradley: "if we can get it to work it should work with anything"). Creality sliced it at **0.08 mm layers**
+(file `Fixture_PLA_1h23m40s.gcode`, against about 26 min for print 1). Our 3MF carries no print settings (checked:
+`[Content_Types].xml`, `_rels/.rels`, `3D/3dmodel.model` only), so the 0.08 came from Creality's own preset
+selection. A fresh Creality window starts on 0.20 mm High Quality, so the source of the 0.08 is unknown. The
+supports were sized for `SupportLayerHeight` 0.20, so print 2 changed two things (the deck and finer
+layers) and is **not a clean deck-only test**. At 0.08 the 0.4 mm deck is 5 layers instead of 2, and a
+0.2 mm tab is 2–3 layers instead of 1.
+Printer readout at 91 %: nozzle 220 °C, bed 50 °C, chamber fan 100 % (target 35 °C), speed 100 %, flow 99 %,
+pressure advance 0.028 s, smooth time 0.04 s, 4.93 m filament used.
+**Open:** record the ledge finish, deck release, and tab marks (validation 15). Print 3 at a verified
+0.20 mm is the clean deck-only comparison, and Phase 7 is what guarantees that layer height.
+
+### PHASE 7: SLICE-READY EXPORT (proposal, 2026-10-28, NOT approved)
+
+**Why:** print 2 was sliced at 0.08 mm while the supports were sized for 0.20 mm, and nothing caught it.
+The bare geometry 3MF leaves every print setting to whatever Creality has selected. Bradley:
+"we need to use something like the 3mf workflow macro. that pulls in the print settings and runs the
+creality slicer."
+
+**Why not the 3D_Printer_3mf_Workflow macro as-is:** I read the installed macro. It rejects a selection of
+more than one object (`get_valid_selection`, `warn_multi_selection`), and it collapses slicer projects to a
+single object (`convert_qidistudio_to_singleobject` / `convert_qidislicer_to_singleobject`). Our output
+is two objects by design (part + supports). We reuse its *idea*: keep a slicer project that holds the
+settings and swap in fresh geometry. We don't modify the community macro.
+
+**What's known (Lockbox Bracket, 2026-09-17, from global memory `reference_3mf_workflow_macro_exports_selection`):**
+- `/Applications/Creality Print.app/Contents/MacOS/CrealityPrint --slice <n> --outputdir <dir> <project.3mf>`
+  slices without opening the GUI, **only for a Creality project 3MF**. A bare mesh falls back to defaults
+  and fails validation, and `--load-settings` from a project is rejected.
+- A project stores meshes in `3D/Objects/object_N.model`, centered, with the placement in
+  `3D/3dmodel.model` build-item transforms and the settings in `Metadata/project_settings.config`. That was
+  a **one-object** project. How Creality stores **two** objects (per-object settings in
+  `Metadata/model_settings.config`, object ids) is **unknown** until we read a real one.
+- Don't run `CrealityPrint --help`: it opens the GUI and hangs (2026-10-28).
+- `~/bin/creality-slice` (the workflow macro's extra command) currently only `echo`s the command. It's
+  Bradley's script and out of this project's scope.
+
+**Design:**
+1. **Template (Bradley, once per project):** in Creality, load the current two-object 3MF and choose the
+   machine (K2 Plus), the process (0.20 mm), the filament, and slicer supports **off**. Save the project as
+   `3mf/<Doc>-slicer.3mf`. This is the only manual step. Re-saving it later from Creality is how print
+   settings get tuned. The settings live in Creality's own format, never in our code.
+2. **`supportgen/slicer_project.py`** (pure Python, no FreeCAD imports, tested like `wedge_math`):
+   - `read_settings(template)` → layer height, first layer height, line width, slicer-support flag,
+     printer model, filament per object;
+   - `check(settings, params)` **refuses** the export, naming each mismatch, if:
+     - `layer_height` ≠ `SupportLayerHeight`;
+     - the default line width ≠ `SupportLineWidth`;
+     - slicer supports are enabled;
+     - the template doesn't hold exactly two objects;
+   - `graft(template, meshes, out)` replaces the two objects' meshes and build transforms (centered meshes plus
+     item translation, the same layout as `export.py` today). It keeps every settings file and its
+     object ids unchanged and writes to a temp file, then renames, so a failure never leaves a half-written project.
+3. **Export command:** writes the bare geometry 3MF and STLs as now. Then, if `3mf/<Doc>-slicer.3mf` exists,
+   it runs `check` and `graft` into it. If the template doesn't exist, it says how to make one. It never
+   writes a bare 3MF over the slicer project (global memory: an export can clobber print settings).
+4. **Slice (separate command, *Slice with Creality*):** runs the CLI on the slicer project in a
+   background subprocess (not inside an MCP call, which is capped at 30 s) and writes `gcode/<Doc>.gcode`.
+   Then it reads the G-code header and reports `layer_height`, `printer_model`, `filament_type`, the
+   support setting, and the per-slot `filament used [g]` line, failing on any mismatch with step 2.
+   **To verify before relying on it:** what the `<n>` in `--slice <n>` means for this Creality version
+   (one plate vs all). Sending the job to the printer stays Bradley's step: bed state and loaded
+   filament aren't observable from here.
+
+**No new Params:** the template path is a file convention, not a dimension, and the check reuses the
+existing `SupportLayerHeight` / `SupportLineWidth`.
+
+**Sub-phases:**
+- **7a (research, read-only):** Bradley saves the template (step 1), plus print 2's Creality project
+  if he kept it, which shows where the 0.08 came from. I read the zip structure with Python `zipfile` (these are
+  3MFs, not FCStd) and record the two-object layout here. No code.
+- **7b:** `slicer_project.py` + tests, test-first: synthetic two-object projects plus a read-only
+  check against the real template.
+- **7c:** wire *Export* + *Slice with Creality* into the workbench, restart FreeCAD, run on the
+  fixture.
+- **7d (validation 16–18):**
+  - 16: an export with a 0.08 template is refused with a message naming `layer_height`;
+  - 17: with the 0.20 template, the grafted project opens in Creality (Bradley) showing two objects in
+    place and the 0.20 process, and re-exporting after a Param change keeps the settings;
+  - 18: the CLI G-code header shows layer_height 0.2, the K2 Plus, supports off, and filament drawn only from the
+    intended slot. Then **print 3** (silk, 0.20): the clean deck-only comparison with print 1.
+
+**Open questions (Bradley):**
+- Is the template name `3mf/<Doc>-slicer.3mf` OK, or would you like a different name or folder?
+- Should *Export* also slice automatically, or keep *Slice* as its own command (proposed)?
+- Keep writing the bare geometry 3MF alongside the project, or drop it once the project path works?
 
 ---
 
@@ -563,7 +648,9 @@ ledge finish and how the deck releases (validation 15).
    - 6b: schema + `feature.py`, restart FreeCAD, re-run SG-02, then validation 3–5 and 9–14; save only
      with approval;
    - 6c: re-export (SG-03), then test print 2 (validation 15), record the profile, tune.
-7. (Later) Curved faces, support-on-part, mesh input, and an optional task panel to preview/override per face.
+7. **Slice-ready export** (proposal, see *PHASE 7*): 7a template research, then 7b `slicer_project.py` + tests, then 7c
+   *Export* / *Slice with Creality* commands, then 7d validation 16–18 + print 3.
+8. (Later) Curved faces, support-on-part, mesh input, and an optional task panel to preview/override per face.
 
 ---
 
