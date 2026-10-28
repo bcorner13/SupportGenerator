@@ -142,13 +142,19 @@ No project-scoped memories yet — this is a fresh project. Relevant global ones
 - **Settings are per project:** *Ensure Support Params* adds `Support*` variables to whichever
   project's `Params` VarSet is open. Don't point another project's supports at this project's Params.
 - `wedge_math.py` has **no FreeCAD imports**, so it's testable with plain `python3`. Keep it that way.
-- The two-object 3MF → Creality Print import is **unverified** (plan.md Phase 5). If Creality merges
-  the objects, see the CircleInlayRouterJig export macro for a custom 3MF writer.
+- The two-object 3MF → Creality Print 7.3 import is **verified** (2026-10-27): two objects, in place.
+  The 3MF is written by `supportgen/export.py`.
 
 ---
 
 ## Print profile
 
-**No successful test print yet — profile TBD.** Fill in after the Phase 5 test print. At minimum record: layer
-height, line width (the gap derives from it), the gap ratio used, slicer supports off, and how
-the supports broke away.
+**Test print 1 (2026-10-27): partial pass.** K2 Plus, Creality Print 7.3, CR PLA **Silk**, 0.20 mm
+layers, 0.42 mm line width, `SupportGap` 0.25 mm absolute, 1-layer tabs, slicer supports **off**,
+no Arrange, about 26 min, 10 g.
+- 45° slope: clean surface, no tab marks; the supports fell off by hand.
+- Level ledge: failed with spaghetti. There were too few plates and their lands were too narrow
+  (plan.md Phase 5 results), so the fix is the rev 5 interface deck.
+- Creality's "too close to others" and "floating cantilever" warnings are expected; ignore them.
+
+Next: test print 2 after rev 5, in plain PLA (SUNLU PLA+ 2.0) so the material isn't a variable.

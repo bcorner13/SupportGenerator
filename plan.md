@@ -1,6 +1,7 @@
-# Plan — SupportGenerator (rev 4, APPROVED 2026-10-23)
+# Plan — SupportGenerator (rev 5, APPROVED 2026-10-27)
 
-> Approved by Bradley 2026-10-23. Saves still need per-save approval (PROJECT_BOOTSTRAP Step 6).
+> Rev 4 was approved by Bradley on 2026-10-23, and rev 5 (the interface deck, see *REV 5* below) on
+> 2026-10-27. Saves still need per-save approval (PROJECT_BOOTSTRAP Step 6).
 >
 > **Source:** Claude could not watch the video (YouTube serves no transcript to a fetch). Technique
 > details come from **Bradley's summary** and **three video screenshots** (2026-10-23).
@@ -17,6 +18,11 @@
 > 0.25 × layer height = 0.05 mm, which is below slicer resolution). The wedge is a **45° right triangle**.
 > Its contact edge is **heavily chamfered** to a narrow land. Contacts are **rectangular tabs** like the
 > video's (disks are dropped). Tabs are **1–2 layers** tall and spaced **5–10 mm** apart (Bradley).
+>
+> **Rev 5 (2026-10-27, from test print 1):** the 45° slope printed clean, but the level ledge failed
+> (spaghetti between the plates). Flat and near-flat faces get an **interface deck**: a thin solid
+> roof on tighter-pitched plates, `SupportGap` below the part. Sloped faces keep the rev 4 knife wedges.
+> See *REV 5: INTERFACE DECK*.
 
 ---
 
@@ -321,7 +327,7 @@ projects before opening this one (it happened on the reopen: UnderDeskCableTray 
 
 ---
 
-## PHASE 5 RESULTS (2026-10-24, in progress)
+## PHASE 5 RESULTS (2026-10-24 to 2026-10-27)
 
 Banner: `TEST ENVIRONMENT VERIFIED: NewMacBook.local uuid D8B58553 FreeCAD 1.1.4 GUI`.
 - `supportgen/export.py` writes the 3MF itself: two named `<object>`s + two build `<item>`s, model
@@ -332,8 +338,130 @@ Banner: `TEST ENVIRONMENT VERIFIED: NewMacBook.local uuid D8B58553 FreeCAD 1.1.4
   read-back (parse the XML, rebuild solids): objects `Fixture` / `Fixture_Supports`, volumes equal
   the model (7750 / 4202.425 mm³), supports = 6 components, part-to-supports distance 0 (tabs
   touch), overlap 0.
-- **Open (Bradley, in the Creality GUI; its macOS CLI doesn't slice):** imports as two objects in
-  place? Supports off, no Arrange. Then the PLA test print, removal quality, tune, print profile.
+- **Creality Print 7.3 (Bradley, GUI):** imports as two objects, in place. Two warnings are expected
+  and harmless: "Fixture_Supports is too close to others" (by design) and "Fixture has floating
+  cantilever" (the slicer doesn't count a separate object as support; keep slicer supports off).
+- **Test print 1 (2026-10-27):** K2 Plus, Creality CR PLA **Silk** (copper), 0.20 mm layers, 0.42 mm
+  line width, one filament, about 26 min, 10 g. Photos: `images/print1_slope_underside.jpeg`,
+  `images/print1_ledge_underside.jpeg`.
+  - **45° slope: pass.** Even layer lines, no tab marks, supports came off with no effort.
+  - **Level ledge: fail.** Loose strands in two directions (diagonal, then horizontal) across the
+    underside, spaghetti loops at the inside corner by the column, whiskers. No visible plate lines.
+  - **Cause, measured** (banner `TEST ENVIRONMENT VERIFIED: NewMacBook.local uuid D8B58553 FreeCAD
+    1.1.4 GUI`): the 25 × 20 mm ledge sits on 3 plates (Y −8.75 / 0 / +8.75, 2 mm thick, 15 mm
+    pitch). Each touches the part only along a 0.84 mm land, with about 6.75 mm of open air between plates, so
+    85–90 % of the underside printed over air. The slicer sees a separate object 0.25 mm below as
+    "no support", so it prints those spans as ordinary overhang infill, not as bridges.
+  - "Supports just fell off" is good on the slope, but on the ledge it means little was resting on
+    them. Silk sags more than plain PLA, but that alone doesn't account for a failure this large.
+  - → Rev 5.
+
+---
+
+## REV 5: INTERFACE DECK (approved 2026-10-27)
+
+**Idea:** a flat overhang can't print onto narrow edges spaced several mm apart. It needs a continuous
+surface below it, which is what a slicer's support *interface* provides. Under every face flatter than
+`SupportDeckAngle`, the generator adds a thin solid **deck** parallel to the face, `SupportGap`
+below it. The deck rests on plates at a tighter `SupportDeckPitch`, and the part's first layer prints
+onto it. Steeper faces (the slope, which passed) keep the rev 4 chamfered knife wedges, unchanged.
+
+### New Params (group `Support`)
+
+| Name | Type | Default | Meaning |
+|---|---|---|---|
+| `SupportDeckAngle` | App::PropertyAngle | 60° | A support face leaning this far or more from vertical gets a deck. Same convention as `SupportOverhangAngle`: 90° = level, so the 45° slope stays wedge-only. Set it above 90° to turn decks off (rev 4 behaviour) |
+| `SupportDeckThick` | App::PropertyLength | `=SupportLayerHeight * 2` → 0.40 mm | Deck thickness, normal to the face. The first deck layer bridges between plates; the second gives the part a smooth top surface to print on |
+| `SupportDeckPitch` | App::PropertyLength | 5 mm | Max plate spacing under a deck. It's a separate knob from `SupportWedgePitch` (15 mm, sloped faces), because it sets the deck's bridge span, which is a different concern |
+
+One knob per concern: the deck reuses `SupportGap` for its clearance, because it's the same
+support-contact interface. If print 2 shows the deck needs a different gap from the slope wedges,
+make the split described under PARAMETERS (`SupportZGap` / `SupportXYGap`).
+
+### Geometry (per deck face F)
+
+1. **Classify:** `deck_needed(n, SupportDeckAngle)` (pure, in `wedge_math`): the same test as
+   `needs_support`, with the deck angle.
+2. **Deck slab:** F, translated `SupportGap` along the outward normal `n`, then extruded a further
+   `SupportDeckThick` along `n`. The result is parallel to F and gap-clear of it. Built from F's own
+   face, so non-rectangular faces work. Like every other piece, it is then trimmed by the existing
+   step 9 clearance cut (`part.makeOffsetShape(SupportGap)`), which keeps it `SupportGap` off the
+   column wall.
+3. **Plates under the deck:**
+   - placed with `wedge_offsets(..., SupportDeckPitch)`, so on the fixture there are 5 plates at
+     4.375 mm, about 2.4 mm clear span;
+   - planned with `plan_wedge` using a *lowered* contact, offset `SupportGap + SupportDeckThick −
+     OVERLAP` along `n`, so each plate reaches 0.01 mm into the deck and fuses with it;
+   - **no chamfer**: the full plate width under the deck makes a stronger joint, and the break line
+     is the deck-to-part gap, not the plate edge;
+   - flaring at the free end stays as in rev 4.
+4. **Tabs:** they move from the plate land to the **deck top**, along each plate line at
+   `SupportTabPitch`, with the same box size. They still touch the part with zero overlap. The rev 4
+   `tab_positions` / `tab_length` functions are unchanged; only the base surface moves.
+5. Fuse the deck + plates, then apply the step 9 clearance cut, keep the pieces standing on the bed,
+   and add the tabs, as rev 4 does.
+
+**Layer quantization (inferred, to check in the slicer preview):** at 0.20 mm layers the deck top
+(Z 16.75) prints up to Z 16.8 and the ledge starts at Z 17.0, so the printed vertical gap is **one
+layer (0.2 mm)**. That's the usual slicer "top Z distance" for PLA. Gaps that aren't layer multiples
+always round like this, so validation reports the printed gap alongside the modelled one.
+
+### Code changes
+
+- `wedge_math.py`: `deck_needed`, plus a `contact_offset` argument on `plan_wedge` (default = `gap`,
+  so the rev 4 behaviour and tests are unchanged) and a `chamfer=False` switch. Test-first.
+- `params_schema.py`: the 3 new Params + 3 `FEATURE_BINDINGS` (`DeckAngle`, `DeckThick`,
+  `DeckPitch`). `SupportDeckThick` follows `SupportContactLand`'s expression-default pattern.
+- `feature.py`: a deck branch in `build_supports`, plus a result property `DeckCount`. Both
+  `_add_properties` and `onDocumentRestored` add the new properties, so saved rev 4 files upgrade on
+  open. The frozen class paths are unchanged.
+- `make_supports` already re-binds every `FEATURE_BINDINGS` entry, and *Add Supports* / SG-02 already
+  run `ensure_params` first, so re-running SG-02 adds the 3 Params and binds them. **`Params.FCStd`
+  and `SupportGenerator.FCStd` saves need approval.**
+
+### Validation (adds to steps 0–8)
+
+9. **Unit tests:** `deck_needed` at the 59.9° / 60° / 90° boundaries; the lowered contact sits
+   exactly `gap + deck_thick − overlap` from the face; with `chamfer=False` the chamfer depth is 0;
+   `DeckPitch` 5 over the fixture's 17.5 mm usable width gives 5 plates. All rev 4 tests are
+   unchanged and still pass.
+10. **Deck coverage:** probe the ledge underside on a 0.5 mm grid, inset `SupportGap` from the
+    column wall. At ≥ 95 % of the points (all except the wall strip), the support lies straight
+    below at `SupportGap` ± 0.005, measured by `distToShape` against a short vertical probe edge.
+    The deck top face area is ≥ 95 % of F's area.
+11. **Deck is held up:** the largest clear span between adjacent plate faces under the deck is
+    ≤ `SupportDeckPitch` − `SupportPlateThick`, and every deck solid is fused to plates standing on
+    the bed (no floating pieces).
+12. **Slope regression:** the slope wedges (Face6) have the same count, volume and tabs as Phase 4.
+    Rev 5 must not change them.
+13. **Flex:**
+    - `SupportDeckAngle` 95° → no decks, 6 wedges, the Phase 4 volume of 4202.425 mm³;
+    - `SupportDeckAngle` 40° → the slope gets a deck too, valid;
+    - `SupportDeckThick` 0.6 → the deck is 0.6 thick;
+    - `SupportDeckPitch` 3 → more plates;
+    - `SupportGap` 0.3 → the deck follows.
+    Each is restored afterwards.
+14. Reopen after a FreeCAD restart: the rev 4 → rev 5 property upgrade works, and the bindings are intact.
+15. **Test print 2:** **plain PLA** (SUNLU PLA+ 2.0, not silk, to separate the material from the design),
+    0.20 mm layers. Check the slicer preview for the one-layer gap. Record the ledge finish, how the
+    deck releases (by hand or with pliers), and any tab marks.
+
+### PHASE 6a RESULTS (2026-10-27)
+
+Banner: `TEST ENVIRONMENT VERIFIED: NewMacBook.local uuid D8B58553 no FreeCAD`.
+
+`wedge_math.py` additions:
+- `deck_needed(normal, deck_angle)`;
+- `deck_contact_offset(gap, deck_thick, overlap)`, which raises if the deck isn't thicker than the overlap;
+- `plan_wedge(..., contact_offset=None, chamfer=True)`, with a `WedgePlan.contact_offset` field.
+
+The defaults keep rev 4 behaviour.
+
+Tests: 9 new tests in `TestDeck`. All 44 `test_wedge_math` tests and all 8 `test_params_schema` tests pass. The rev 4 tests are unchanged.
+
+**Found by a test:** `sin()` is symmetric about 90°, so a 95° `SupportDeckAngle` would still have
+put a deck on a level face (it acts like 85°). `deck_needed` now returns False above 90°, so "> 90° =
+decks off" holds.
 
 ---
 
@@ -346,7 +474,12 @@ Banner: `TEST ENVIRONMENT VERIFIED: NewMacBook.local uuid D8B58553 FreeCAD 1.1.4
 3. Workbench skeleton (stub loader, commands, schema) → symlink into `Mod/` → restart FreeCAD.
 4. `supportgen/feature.py`, then *Add Supports* on the fixture; validation 1–7.
 5. *Export*: two-object 3MF → Creality check → test print → tune → record profile.
-6. (Later) Curved faces, support-on-part, mesh input, and an optional task panel to preview/override per face.
+6. **Rev 5 interface deck** (after approval):
+   - 6a: `wedge_math` + tests (test-first);
+   - 6b: schema + `feature.py`, restart FreeCAD, re-run SG-02, then validation 3–5 and 9–14; save only
+     with approval;
+   - 6c: re-export (SG-03), then test print 2 (validation 15), record the profile, tune.
+7. (Later) Curved faces, support-on-part, mesh input, and an optional task panel to preview/override per face.
 
 ---
 

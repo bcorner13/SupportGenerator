@@ -254,6 +254,68 @@ class TestPlanWedge(unittest.TestCase):
             wm.plan_wedge((0, 0), (10, 10), N45, 0.0, default_params(tab_layers=0))
 
 
+class TestDeck(unittest.TestCase):
+    """Rev 5 interface deck: flat-ish faces get a deck on plates at SupportDeckPitch."""
+
+    @staticmethod
+    def lean_normal(lean_deg):
+        """Outward normal (x, y, z) of a face leaning lean_deg from vertical, overhanging."""
+        a = math.radians(lean_deg)
+        return (math.cos(a), 0.0, -math.sin(a))
+
+    def test_deck_needed_boundaries(self):
+        self.assertFalse(wm.deck_needed(self.lean_normal(59.9), 60.0))
+        self.assertTrue(wm.deck_needed(self.lean_normal(60.0), 60.0))
+        self.assertTrue(wm.deck_needed((0, 0, -1), 60.0))      # level ledge
+        self.assertFalse(wm.deck_needed(self.lean_normal(45.0), 60.0))  # the slope keeps wedges
+
+    def test_deck_angle_above_90_turns_decks_off(self):
+        self.assertFalse(wm.deck_needed((0, 0, -1), 95.0))
+
+    def test_deck_contact_offset(self):
+        self.assertAlmostEqual(wm.deck_contact_offset(0.25, 0.4, 0.01), 0.64)
+
+    def test_deck_contact_offset_rejects_no_overlap(self):
+        with self.assertRaises(ValueError):
+            wm.deck_contact_offset(0.25, 0.01, 0.01)  # plates would not reach into the deck
+
+    def test_lowered_contact_sits_offset_from_face(self):
+        off = wm.deck_contact_offset(0.25, 0.4, 0.01)
+        plan = wm.plan_wedge((0, 17), (25, 17), (0, -1), 0.0, default_params(),
+                             flare_end="hi", contact_offset=off, chamfer=False)
+        (sa, za), (sb, zb) = plan.contact
+        self.assertAlmostEqual(za, 17 - off)
+        self.assertAlmostEqual(zb, 17 - off)
+        self.assertAlmostEqual(plan.contact_offset, off)
+
+    def test_lowered_contact_on_slope_is_normal_to_face(self):
+        off = 0.64
+        plan = wm.plan_wedge((0, 0), (10, 10), N45, -5.0, default_params(), contact_offset=off)
+        a, b = plan.contact
+        for pt in (a, b):
+            self.assertAlmostEqual(perp_dist_to_line(pt, (0, 0), (10, 10)), off)
+
+    def test_no_chamfer_under_deck(self):
+        plan = wm.plan_wedge((0, 17), (25, 17), (0, -1), 0.0, default_params(),
+                             flare_end="hi", contact_offset=0.64, chamfer=False)
+        self.assertEqual(plan.chamfer_depth, 0.0)
+
+    def test_default_contact_offset_is_gap(self):
+        """Rev 4 behaviour unchanged when no contact_offset is given."""
+        plan = wm.plan_wedge((0, 17), (25, 17), (0, -1), 0.0, default_params(), flare_end="hi")
+        self.assertAlmostEqual(plan.contact[0][1], 17 - 0.25)
+        self.assertAlmostEqual(plan.contact_offset, 0.25)
+        self.assertGreater(plan.chamfer_depth, 0.0)
+
+    def test_deck_pitch_on_fixture_width(self):
+        offs = wm.wedge_offsets(20.0, 2.0, 0.25, 5.0)
+        self.assertEqual(len(offs), 5)  # usable 17.5 / 5 -> ceil 4 spaces
+        steps = [b - a for a, b in zip(offs, offs[1:])]
+        for s in steps:
+            self.assertAlmostEqual(s, 4.375)
+        self.assertLessEqual(max(steps) - 2.0, 5.0 - 2.0)  # clear span <= pitch - plate
+
+
 def setUpModule():
     from test_env_guard import require_laptop
     print(require_laptop(need_freecad=False))
