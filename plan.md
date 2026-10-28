@@ -510,7 +510,12 @@ identical (6586.393 mm³).
 
 Screenshots: `images/supports_rev5_isometric.png`, `supports_rev5_front.png`, `supports_rev5_right.png`.
 `validate_document`: 13/13 valid. Both files saved with Bradley's approval (2026-10-27), and the audit is clean on
-the saved files. **Pending:** validation 14 (restart and reopen).
+the saved files.
+
+**Validation 14 (restart + reopen, 2026-10-27):** passes. The proxies `supportgen.feature.SupportFeature` /
+`ViewProviderSupport` load from `Mod/SupportGenerator`; all 16 bindings are intact, including the 3 deck ones.
+Before recompute the object is Up-to-date at 6586.393 mm³ (8 wedges, 1 deck). A forced recompute gives the same
+volume: valid, ZMin 0, tabs touching, overlap 0, the 3 known warnings. Not re-saved; nothing changed.
 
 ---
 
