@@ -529,7 +529,16 @@ Banner: `TEST ENVIRONMENT VERIFIED: NewMacBook.local uuid D8B58553 FreeCAD 1.1.4
 - part-to-supports distance 0 (tabs touch), overlap 0;
 - the deck probe at (12, 2) reads 16.35–16.75.
 
-**Open (Bradley):** print 2 in SUNLU PLA+ 2.0 at 0.20 mm. First check the one-layer gap in the Creality preview, then record the
+**Supports shifted in Creality (2026-10-27):** after Bradley loaded the file (the first time with *Open*, not
+*Import*), the supports sat about 8.3 mm toward −X, which matches the supports' own bounding-box center
+offset. Print 1 used the same layout and wasn't shifted, so this isn't Creality's default behaviour. Most likely the load
+path re-centered each object on its bounding box (inferred, not confirmed). Fix in `export.py`: each mesh is stored
+centered on its own origin, and its world position goes in its build item `transform` (the standard 3MF layout), so
+re-centering has nothing to move. `verify_3mf` now also checks the centered origins and the translated extents.
+Independent read-back: local centers (0, 0, 0); items part (0, 0, 10), supports (8.0916, 0, 9.9116); rebuilt
+volumes 7750 / 6586.393 mm³, bounding boxes equal the model, distance 0, overlap 1e-6 mm³ (mesh-rebuild noise).
+
+**Open (Bradley):** print 2 in SUNLU PLA+ 2.0 (or Hyper PLA) at 0.20 mm. First check the one-layer gap in the Creality preview, then record the
 ledge finish and how the deck releases (validation 15).
 
 ---

@@ -1,10 +1,12 @@
 """Export a part and its Supports as two named objects in one 3MF (plus optional STLs).
 
 The video exported STEP and used the slicer's "split to objects"; a 3MF with two
-<object>s and two build <item>s gets there directly. Both are written in model (world)
-coordinates with identity transforms, so their relative position is exact: the tabs
-touch the part and the gap stays SupportGap. In the slicer, don't Arrange (it would
-move the objects apart) and keep slicer supports off.
+<object>s and two build <item>s gets there directly. Each mesh is stored centered on its
+own bounding box, and its world position goes in its build item's transform. Creality
+Print re-centers every object on its bounding box when it loads a 3MF (2026-10-27: identity
+transforms moved the supports 8.3 mm, the half-width of their flare), so this layout leaves
+it nothing to move, and the relative position stays exact: the tabs touch the part and the gap
+stays SupportGap. In the slicer, don't Arrange and keep slicer supports off.
 
 FreeCAD's own Mesh.export also writes separate objects, but unnamed and without a
 read-back check, so this module writes the 3MF core-spec package itself.
@@ -56,22 +58,35 @@ def mesh_shape(shape):
     return mesh
 
 
+def _center(mesh):
+    """Bounding-box center: the mesh's local origin in the 3MF."""
+    bb = mesh.BoundBox
+    return ((bb.XMin + bb.XMax) / 2, (bb.YMin + bb.YMax) / 2, (bb.ZMin + bb.ZMax) / 2)
+
+
 def write_3mf(path, named_meshes):
-    """named_meshes: [(name, Mesh.Mesh)]. One <object> + one <item> per mesh."""
+    """named_meshes: [(name, Mesh.Mesh)]. One <object> (vertices relative to its
+    bounding-box center) + one <item> whose transform translates it back, per mesh."""
     out = ['<?xml version="1.0" encoding="UTF-8"?>\n'
            '<model unit="millimeter" xml:lang="en-US" '
            'xmlns="http://schemas.microsoft.com/3dmanufacturing/core/2015/02">\n'
            ' <metadata name="Application">FreeCAD SupportGenerator</metadata>\n <resources>\n']
+    centers = []
     for oid, (name, mesh) in enumerate(named_meshes, start=1):
         points, facets = mesh.Topology
+        cx, cy, cz = _center(mesh)
+        centers.append((cx, cy, cz))
         out.append(f'  <object id="{oid}" name="{_xml_attr(name)}" type="model">\n'
                    '   <mesh>\n    <vertices>\n')
-        out += [f'     <vertex x="{_fmt(p.x)}" y="{_fmt(p.y)}" z="{_fmt(p.z)}"/>\n' for p in points]
+        out += [f'     <vertex x="{_fmt(p.x - cx)}" y="{_fmt(p.y - cy)}" z="{_fmt(p.z - cz)}"/>\n'
+                for p in points]
         out.append('    </vertices>\n    <triangles>\n')
         out += [f'     <triangle v1="{a}" v2="{b}" v3="{c}"/>\n' for a, b, c in facets]
         out.append('    </triangles>\n   </mesh>\n  </object>\n')
     out.append(' </resources>\n <build>\n')
-    out += [f'  <item objectid="{oid}"/>\n' for oid in range(1, len(named_meshes) + 1)]
+    out += [f'  <item objectid="{oid}" transform="1 0 0 0 1 0 0 0 1 '
+            f'{_fmt(cx)} {_fmt(cy)} {_fmt(cz)}"/>\n'
+            for oid, (cx, cy, cz) in enumerate(centers, start=1)]
     out.append(' </build>\n</model>\n')
     with zipfile.ZipFile(path, "w", zipfile.ZIP_DEFLATED) as z:
         z.writestr("[Content_Types].xml", CONTENT_TYPES)
@@ -80,14 +95,17 @@ def write_3mf(path, named_meshes):
 
 
 def verify_3mf(path, named_meshes):
-    """Read the file back: names, vertex/triangle counts and bounding boxes per object."""
+    """Read the file back: names, vertex/triangle counts, and each object's bounding box
+    (vertices + its item's translation) against the mesh; local origins must be centered."""
     with zipfile.ZipFile(path) as z:
         if z.testzip() is not None:
             raise RuntimeError("3MF failed the zip CRC check")
         model = z.read(MODEL_ENTRY).decode("utf-8")
     blocks = re.findall(r'<object id="(\d+)" name="([^"]*)" type="model">(.*?)</object>', model, re.S)
-    if len(blocks) != len(named_meshes) or model.count("<item ") != len(named_meshes):
-        raise RuntimeError(f"3MF has {len(blocks)} objects, expected {len(named_meshes)}")
+    items = dict(re.findall(r'<item objectid="(\d+)" transform="1 0 0 0 1 0 0 0 1 ([^"]+)"/>', model))
+    if len(blocks) != len(named_meshes) or len(items) != len(named_meshes):
+        raise RuntimeError(f"3MF has {len(blocks)} objects / {len(items)} translated items, "
+                           f"expected {len(named_meshes)}")
     report = []
     for (oid, name, body), (want_name, mesh) in zip(blocks, named_meshes):
         verts = [tuple(float(c) for c in m) for m in
@@ -96,10 +114,14 @@ def verify_3mf(path, named_meshes):
             raise RuntimeError(f"object {oid} is named {name!r}, expected {want_name!r}")
         if len(verts) != mesh.CountPoints or body.count("<triangle ") != mesh.CountFacets:
             raise RuntimeError(f"object {name}: vertex/triangle count mismatch")
+        shift = [float(t) for t in items[oid].split()]
         bb = mesh.BoundBox
         for axis, (lo, hi) in enumerate(((bb.XMin, bb.XMax), (bb.YMin, bb.YMax), (bb.ZMin, bb.ZMax))):
             vals = [v[axis] for v in verts]
-            if abs(min(vals) - lo) > EXTENT_TOL or abs(max(vals) - hi) > EXTENT_TOL:
+            if abs(min(vals) + max(vals)) > 2 * EXTENT_TOL:
+                raise RuntimeError(f"object {name}: local origin not centered on axis {'XYZ'[axis]}")
+            if abs(min(vals) + shift[axis] - lo) > EXTENT_TOL or \
+                    abs(max(vals) + shift[axis] - hi) > EXTENT_TOL:
                 raise RuntimeError(f"object {name}: extent wrong on axis {'XYZ'[axis]}")
         report.append({"name": name, "vertices": len(verts), "triangles": mesh.CountFacets})
     return report
