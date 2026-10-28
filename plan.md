@@ -517,6 +517,21 @@ the saved files.
 Before recompute the object is Up-to-date at 6586.393 mm³ (8 wedges, 1 deck). A forced recompute gives the same
 volume: valid, ZMin 0, tabs touching, overlap 0, the 3 known warnings. Not re-saved; nothing changed.
 
+### PHASE 6c RESULTS (2026-10-27, in progress)
+
+Banner: `TEST ENVIRONMENT VERIFIED: NewMacBook.local uuid D8B58553 FreeCAD 1.1.4 GUI`.
+
+`SG-03` re-exported `3mf/SupportGenerator-Fixture.3mf` and `stl/Fixture.stl` + `stl/Fixture_Supports.stl`
+(660 triangles). I checked the 3MF independently by parsing the XML and rebuilding the solids:
+- CRC OK; 2 named objects, 2 build items;
+- volumes match the model (7750 / 6586.393 mm³);
+- the supports are 4 components (3 slope wedges + 1 deck structure), and both objects have ZMin 0;
+- part-to-supports distance 0 (tabs touch), overlap 0;
+- the deck probe at (12, 2) reads 16.35–16.75.
+
+**Open (Bradley):** print 2 in SUNLU PLA+ 2.0 at 0.20 mm. First check the one-layer gap in the Creality preview, then record the
+ledge finish and how the deck releases (validation 15).
+
 ---
 
 ## PHASES
